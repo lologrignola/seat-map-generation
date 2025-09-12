@@ -5,54 +5,59 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { SeatMap } from "./seat-map-builder"
-import { MousePointer, Plus, Trash2, Tag, PlusCircle, Square, SquareCheck } from "lucide-react"
+import { MousePointer, Plus, Trash2, Tag, Square, SquareCheck } from "lucide-react"
 import { useState } from "react"
 import { BatchLabelingDialog, type BatchPattern } from "./batch-labeling-dialog"
 
 interface ToolbarProps {
-  selectedTool: "select" | "add-row" | "add-seat"
-  onToolChange: (tool: "select" | "add-row" | "add-seat") => void
+  selectedTool: "select"
+  onToolChange: (tool: "select") => void
   seatMap: SeatMap
   onSeatMapChange: (seatMap: SeatMap) => void
 }
 
 export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }: ToolbarProps) {
-  const [batchLabel, setBatchLabel] = useState("")
-  const [batchStart, setBatchStart] = useState(1)
-  const [batchEnd, setBatchEnd] = useState(10)
 
   const selectedRows = seatMap.rows.filter((row) => row.selected)
-  const selectedSeats = seatMap.rows.flatMap((row) =>
-    row.seats.filter((seat) => seat.selected).map((seat) => ({ ...seat, rowId: row.id })),
-  )
+
+  const [showCreateRowsDialog, setShowCreateRowsDialog] = useState(false)
+  const [rowCount, setRowCount] = useState(3)
+  const [seatsPerRow, setSeatsPerRow] = useState(8)
+  const rowSpacing = 50 // Fixed spacing
 
   const handleCreateMultipleRows = () => {
-    const count = prompt("How many rows would you like to create?", "3")
-    const numRows = Number.parseInt(count || "0")
-
-    if (numRows <= 0 || numRows > 20) {
+    if (rowCount <= 0 || rowCount > 20) {
       alert("Please enter a number between 1 and 20")
       return
     }
 
     const newRows = []
-    for (let i = 0; i < numRows; i++) {
+    const canvasPadding = 176 // Match the canvas padding
+    
+    for (let i = 0; i < rowCount; i++) {
       const rowNumber = seatMap.rows.length + i + 1
+      const rowX = canvasPadding
+      const rowY = i * rowSpacing + 50
+      
       const newRow = {
         id: `row-${Date.now()}-${i}`,
         label: `Row ${rowNumber}`,
         seats: [],
         selected: false,
+        x: rowX,
+        y: rowY,
+        rotation: 0,
       }
 
-      // Add default seats to each row
-      for (let j = 0; j < 8; j++) {
+      // Add seats to each row with proper positioning
+      for (let j = 0; j < seatsPerRow; j++) {
         newRow.seats.push({
           id: `seat-${Date.now()}-${i}-${j}`,
           label: `${j + 1}`,
-          x: j * 35,
-          y: i * 50 + 50, // Offset each row vertically
+          x: rowX + j * 40, // Position relative to row
+          y: rowY, // Same Y as row
           selected: false,
           type: "regular" as const,
         })
@@ -65,6 +70,8 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
       ...seatMap,
       rows: [...seatMap.rows, ...newRows],
     })
+    
+    setShowCreateRowsDialog(false)
   }
 
   const handleSelectAll = () => {
@@ -88,57 +95,19 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
   }
 
   const handleDeleteSelected = () => {
-    if (selectedRows.length === 0 && selectedSeats.length === 0) return
+    if (selectedRows.length === 0) return
 
     const confirmed = confirm(
-      `Are you sure you want to delete ${selectedRows.length} row(s) and ${selectedSeats.length} seat(s)?`,
+      `Are you sure you want to delete ${selectedRows.length} row(s)?`,
     )
 
     if (!confirmed) return
 
-    let updatedRows = seatMap.rows.filter((row) => !row.selected)
-
-    // Remove selected seats from remaining rows
-    updatedRows = updatedRows.map((row) => ({
-      ...row,
-      seats: row.seats.filter((seat) => !seat.selected),
-    }))
+    const updatedRows = seatMap.rows.filter((row) => !row.selected)
 
     onSeatMapChange({ ...seatMap, rows: updatedRows })
   }
 
-  const handleBatchLabel = () => {
-    if (!batchLabel.trim()) return
-
-    const updatedRows = seatMap.rows.map((row) => {
-      if (row.selected) {
-        // Label the row itself
-        return { ...row, label: batchLabel, selected: false }
-      }
-
-      // Label selected seats in this row
-      const selectedSeatsInRow = row.seats.filter((seat) => seat.selected)
-      if (selectedSeatsInRow.length > 0) {
-        const updatedSeats = row.seats.map((seat, index) => {
-          if (seat.selected) {
-            const seatNumber = batchStart + row.seats.filter((s, i) => i < index && s.selected).length
-            return {
-              ...seat,
-              label: `${batchLabel}${seatNumber}`,
-              selected: false,
-            }
-          }
-          return seat
-        })
-        return { ...row, seats: updatedSeats }
-      }
-
-      return row
-    })
-
-    onSeatMapChange({ ...seatMap, rows: updatedRows })
-    setBatchLabel("")
-  }
 
   const handleApplyPattern = (pattern: BatchPattern) => {
     let counter = 0
@@ -162,34 +131,6 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
         return { ...row, label: newLabel, selected: false }
       }
 
-      // Apply pattern to selected seats in this row
-      const selectedSeatsInRow = row.seats.filter((seat) => seat.selected)
-      if (selectedSeatsInRow.length > 0) {
-        let seatCounter = 0
-        const updatedSeats = row.seats.map((seat) => {
-          if (seat.selected) {
-            let newLabel: string
-
-            if (pattern.type === "sequential") {
-              newLabel = `${pattern.prefix}${(pattern.startValue as number) + (counter + seatCounter) * pattern.increment}${pattern.suffix}`
-            } else if (pattern.type === "alphabetic") {
-              const startChar = (pattern.startValue as string).charCodeAt(0)
-              const char = String.fromCharCode(startChar + (counter + seatCounter) * pattern.increment)
-              newLabel = `${pattern.prefix}${char}${pattern.suffix}`
-            } else {
-              newLabel = `${pattern.prefix}${counter + seatCounter + 1}${pattern.suffix}`
-            }
-
-            seatCounter++
-            return { ...seat, label: newLabel, selected: false }
-          }
-          return seat
-        })
-
-        counter += seatCounter
-        return { ...row, seats: updatedSeats }
-      }
-
       return row
     })
 
@@ -197,143 +138,277 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
   }
 
   return (
-    <Card className="p-4">
-      <div className="space-y-4">
-        {/* Tools */}
-        <div>
-          <Label className="text-sm font-medium mb-2 block">Tools</Label>
-          <div className="flex gap-2">
-            <Button
-              variant={selectedTool === "select" ? "default" : "outline"}
-              size="sm"
-              onClick={() => onToolChange("select")}
-            >
-              <MousePointer className="w-4 h-4 mr-2" />
-              Select
-            </Button>
-            <Button
-              variant={selectedTool === "add-row" ? "default" : "outline"}
-              size="sm"
-              onClick={() => onToolChange("add-row")}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Row
-            </Button>
-            <Button
-              variant={selectedTool === "add-seat" ? "default" : "outline"}
-              size="sm"
-              onClick={() => onToolChange("add-seat")}
-            >
-              <PlusCircle className="w-4 h-4 mr-2" />
-              Add Seat
-            </Button>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Quick Actions */}
-        <div>
-          <Label className="text-sm font-medium mb-2 block">Quick Actions</Label>
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleCreateMultipleRows}>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Multiple Rows
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleSelectAll}>
-              <SquareCheck className="w-4 h-4 mr-2" />
-              Select All
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleClearSelection}>
-              <Square className="w-4 h-4 mr-2" />
-              Clear Selection
-            </Button>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Selection Actions */}
-        <div>
-          <Label className="text-sm font-medium mb-2 block">
-            Selection ({selectedRows.length} rows, {selectedSeats.length} seats)
-          </Label>
-          <div className="flex gap-2">
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDeleteSelected}
-              disabled={selectedRows.length === 0 && selectedSeats.length === 0}
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete Selected
-            </Button>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Batch Labeling */}
-        <div>
-          <Label className="text-sm font-medium mb-2 block">Batch Labeling</Label>
-
-          <div className="flex gap-2 mb-3">
-            <BatchLabelingDialog
-              onApplyPattern={handleApplyPattern}
-              selectedCount={{ rows: selectedRows.length, seats: selectedSeats.length }}
-            />
-          </div>
-
-          {/* Simple batch labeling */}
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <Label htmlFor="batch-label" className="text-xs">
-                Simple Pattern
-              </Label>
-              <Input
-                id="batch-label"
-                placeholder="e.g., A, Platea, VIP"
-                value={batchLabel}
-                onChange={(e) => setBatchLabel(e.target.value)}
+    <div className="space-y-4">
+      {/* Tools */}
+      <div>
+        <Label className="text-sm font-medium mb-2 block">Tools</Label>
+        <div className="grid grid-cols-2 gap-1">
+          <Button
+            variant={selectedTool === "select" ? "default" : "outline"}
+            size="sm"
+            onClick={() => onToolChange("select")}
+            className={`h-6 text-xs px-2 ${selectedTool === "select" ? "ring-2 ring-primary/20" : ""}`}
+          >
+            <MousePointer className="w-3 h-3 mr-1" />
+            Select
+          </Button>
+          <Dialog open={showCreateRowsDialog} onOpenChange={setShowCreateRowsDialog}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
                 size="sm"
-              />
-            </div>
-            <div className="w-20">
-              <Label htmlFor="batch-start" className="text-xs">
-                Start
-              </Label>
-              <Input
-                id="batch-start"
-                type="number"
-                value={batchStart}
-                onChange={(e) => setBatchStart(Number(e.target.value))}
-                size="sm"
-              />
-            </div>
-            <div className="w-20">
-              <Label htmlFor="batch-end" className="text-xs">
-                End
-              </Label>
-              <Input
-                id="batch-end"
-                type="number"
-                value={batchEnd}
-                onChange={(e) => setBatchEnd(Number(e.target.value))}
-                size="sm"
-              />
-            </div>
-            <Button
-              size="sm"
-              onClick={handleBatchLabel}
-              disabled={!batchLabel.trim() || (selectedRows.length === 0 && selectedSeats.length === 0)}
-            >
-              <Tag className="w-4 h-4 mr-2" />
-              Apply
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">Select rows or seats first, then apply batch labels</p>
+                className="h-6 text-xs px-2"
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Add Rows
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Rows</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="row-count">Number of Rows</Label>
+                    <Input
+                      id="row-count"
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={rowCount}
+                      onChange={(e) => setRowCount(Number(e.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="seats-per-row">Seats per Row</Label>
+                    <Input
+                      id="seats-per-row"
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={seatsPerRow}
+                      onChange={(e) => setSeatsPerRow(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setShowCreateRowsDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateMultipleRows}>
+                    Create {rowCount} Rows
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Click "Add Rows" to create single or multiple rows with seats. Use "Select" to interact with rows.
+        </p>
+      </div>
+
+      <Separator />
+
+      {/* Quick Actions */}
+      <div>
+        <Label className="text-sm font-medium mb-2 block">Quick Actions</Label>
+        <div className="grid grid-cols-2 gap-1">
+          <Button variant="outline" size="sm" onClick={handleSelectAll} className="h-6 text-xs px-1">
+            <SquareCheck className="w-3 h-3 mr-1" />
+            Select All
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleClearSelection} className="h-6 text-xs px-1">
+            <Square className="w-3 h-3 mr-1" />
+            Clear
+          </Button>
         </div>
       </div>
-    </Card>
+
+      <Separator />
+
+      {/* Selection Actions */}
+      <div>
+        <Label className="text-sm font-medium mb-2 block">
+          Selection ({selectedRows.length} rows)
+        </Label>
+        <div className="flex gap-1">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDeleteSelected}
+            disabled={selectedRows.length === 0}
+            className="h-6 text-xs px-2 w-full"
+          >
+            <Trash2 className="w-3 h-3 mr-1" />
+            Delete Selected
+          </Button>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Row Controls */}
+      {selectedRows.length === 1 && (
+        <div>
+          <Label className="text-sm font-medium mb-2 block">Row Controls</Label>
+          
+          {/* Row Label Editing */}
+          <div className="mb-2">
+            <Label htmlFor="row-label" className="text-xs">Row Label</Label>
+            <div className="flex gap-1">
+              <Input
+                id="row-label"
+                value={selectedRows[0]?.label || ''}
+                onChange={(e) => {
+                  const updatedRows = seatMap.rows.map(row => 
+                    row.id === selectedRows[0].id 
+                      ? { ...row, label: e.target.value }
+                      : row
+                  )
+                  onSeatMapChange({ ...seatMap, rows: updatedRows })
+                }}
+                className="flex-1 h-7 text-xs"
+                size="sm"
+              />
+            </div>
+          </div>
+
+
+          {/* Rotation Controls */}
+          <div className="mb-2">
+            <Label className="text-xs mb-1 block">Rotation</Label>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 w-6 p-0 text-xs"
+                onClick={() => {
+                  const rowId = selectedRows[0].id
+                  const updatedRows = seatMap.rows.map(row => {
+                    if (row.id === rowId) {
+                      const newRotation = row.rotation + 5
+                      
+                      // Calculate rotation center (center of all seats)
+                      const seatPositions = row.seats.map(seat => ({ x: seat.x, y: seat.y }))
+                      const centerX = seatPositions.reduce((sum, pos) => sum + pos.x, 0) / seatPositions.length
+                      const centerY = seatPositions.reduce((sum, pos) => sum + pos.y, 0) / seatPositions.length
+                      
+                      // Convert to radians
+                      const angleRad = (5 * Math.PI) / 180
+                      const cos = Math.cos(angleRad)
+                      const sin = Math.sin(angleRad)
+                      
+                      // Rotate each seat around the center
+                      const updatedSeats = row.seats.map((seat) => {
+                        // Translate to origin
+                        const relX = seat.x - centerX
+                        const relY = seat.y - centerY
+                        
+                        // Rotate
+                        const newRelX = relX * cos - relY * sin
+                        const newRelY = relX * sin + relY * cos
+                        
+                        // Translate back
+                        return {
+                          ...seat,
+                          x: newRelX + centerX,
+                          y: newRelY + centerY,
+                        }
+                      })
+
+                      return {
+                        ...row,
+                        rotation: newRotation,
+                        seats: updatedSeats,
+                      }
+                    }
+                    return row
+                  })
+                  onSeatMapChange({ ...seatMap, rows: updatedRows })
+                }}
+                title="Rotate 5° clockwise"
+              >
+                ↻
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 w-6 p-0 text-xs"
+                onClick={() => {
+                  const rowId = selectedRows[0].id
+                  const updatedRows = seatMap.rows.map(row => {
+                    if (row.id === rowId) {
+                      const newRotation = row.rotation - 5
+                      
+                      // Calculate rotation center (center of all seats)
+                      const seatPositions = row.seats.map(seat => ({ x: seat.x, y: seat.y }))
+                      const centerX = seatPositions.reduce((sum, pos) => sum + pos.x, 0) / seatPositions.length
+                      const centerY = seatPositions.reduce((sum, pos) => sum + pos.y, 0) / seatPositions.length
+                      
+                      // Convert to radians
+                      const angleRad = (-5 * Math.PI) / 180
+                      const cos = Math.cos(angleRad)
+                      const sin = Math.sin(angleRad)
+                      
+                      // Rotate each seat around the center
+                      const updatedSeats = row.seats.map((seat) => {
+                        // Translate to origin
+                        const relX = seat.x - centerX
+                        const relY = seat.y - centerY
+                        
+                        // Rotate
+                        const newRelX = relX * cos - relY * sin
+                        const newRelY = relX * sin + relY * cos
+                        
+                        // Translate back
+                        return {
+                          ...seat,
+                          x: newRelX + centerX,
+                          y: newRelY + centerY,
+                        }
+                      })
+
+                      return {
+                        ...row,
+                        rotation: newRotation,
+                        seats: updatedSeats,
+                      }
+                    }
+                    return row
+                  })
+                  onSeatMapChange({ ...seatMap, rows: updatedRows })
+                }}
+                title="Rotate 5° counter-clockwise"
+              >
+                ↺
+              </Button>
+            </div>
+          </div>
+
+          {/* Row Info */}
+          <div className="text-xs text-muted-foreground">
+            <div>Seats: {selectedRows[0]?.seats.length || 0}</div>
+            <div>Rotation: {Math.round(selectedRows[0]?.rotation || 0)}°</div>
+          </div>
+        </div>
+      )}
+
+      <Separator />
+
+      {/* Batch Labeling */}
+      <div>
+        <Label className="text-sm font-medium mb-2 block">Batch Labeling</Label>
+
+        <div className="flex gap-1">
+          <BatchLabelingDialog
+            onApplyPattern={handleApplyPattern}
+            selectedCount={{ rows: selectedRows.length, seats: 0 }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">Select rows first, then apply batch labels</p>
+      </div>
+    </div>
   )
 }

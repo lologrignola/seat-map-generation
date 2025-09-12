@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Download } from "lucide-react"
+import { Upload } from "lucide-react"
 import type { SeatMap } from "./seat-map-builder"
 
 interface ExportDialogProps {
@@ -39,16 +39,29 @@ export function ExportDialog({ seatMap, onExport }: ExportDialogProps) {
     name: exportName,
     description,
     metadata: {
-      version: "1.0",
+      version: "1.1",
       createdAt: seatMap.metadata?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       totalSeats,
       totalRows: seatMap.rows.length,
       accessibleSeats,
+      features: {
+        stage: {
+          enabled: true,
+          position: { x: 0, y: 8 },
+          size: { width: 600, height: 120 }
+        },
+        rowPositioning: true,
+        rowRotation: true,
+        zoomSupport: true
+      }
     },
     rows: seatMap.rows.slice(0, 2).map((row) => ({
       id: row.id,
       label: row.label,
+      x: row.x,
+      y: row.y,
+      rotation: row.rotation,
       seats: row.seats.slice(0, 3).map((seat) => ({
         id: seat.id,
         label: seat.label,
@@ -63,7 +76,7 @@ export function ExportDialog({ seatMap, onExport }: ExportDialogProps) {
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          <Download className="w-4 h-4 mr-2" />
+          <Upload className="w-4 h-4 mr-2" />
           Export JSON
         </Button>
       </DialogTrigger>
@@ -98,11 +111,19 @@ export function ExportDialog({ seatMap, onExport }: ExportDialogProps) {
           {/* Statistics */}
           <div>
             <Label className="text-sm font-medium mb-2 block">Map Statistics</Label>
-            <div className="flex gap-2 flex-wrap">
-              <Badge variant="outline">{seatMap.rows.length} Rows</Badge>
-              <Badge variant="outline">{totalSeats} Total Seats</Badge>
-              <Badge variant="outline">{accessibleSeats} Accessible Seats</Badge>
-              <Badge variant="outline">{totalSeats - accessibleSeats} Regular Seats</Badge>
+            <div className="space-y-2">
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="outline">{seatMap.rows.length} Rows</Badge>
+                <Badge variant="outline">{totalSeats} Total Seats</Badge>
+                <Badge variant="outline">{accessibleSeats} Accessible Seats</Badge>
+                <Badge variant="outline">{totalSeats - accessibleSeats} Regular Seats</Badge>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="secondary">Stage Area</Badge>
+                <Badge variant="secondary">Row Positioning</Badge>
+                <Badge variant="secondary">Row Rotation</Badge>
+                <Badge variant="secondary">Zoom Support</Badge>
+              </div>
             </div>
           </div>
 
@@ -121,7 +142,7 @@ export function ExportDialog({ seatMap, onExport }: ExportDialogProps) {
               Cancel
             </Button>
             <Button onClick={handleExport} disabled={!exportName.trim()}>
-              <Download className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-2" />
               Export Map
             </Button>
           </div>

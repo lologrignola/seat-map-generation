@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Upload, FileText, AlertCircle, CheckCircle } from "lucide-react"
+import { Download, FileText, AlertCircle, CheckCircle } from "lucide-react"
 
 interface ImportDialogProps {
   onImport: (file: File) => void
@@ -103,7 +103,7 @@ export function ImportDialog({ onImport }: ImportDialogProps) {
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          <FileText className="w-4 h-4 mr-2" />
+          <Download className="w-4 h-4 mr-2" />
           Advanced Import
         </Button>
       </DialogTrigger>
@@ -123,7 +123,7 @@ export function ImportDialog({ onImport }: ImportDialogProps) {
             onDragOver={handleDrag}
             onDrop={handleDrop}
           >
-            <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+            <Download className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <p className="text-lg font-medium mb-2">Drop your JSON file here</p>
             <p className="text-sm text-muted-foreground mb-4">or click to browse</p>
             <input
@@ -167,13 +167,31 @@ export function ImportDialog({ onImport }: ImportDialogProps) {
                 <div>
                   <p className="font-medium">{previewData.name}</p>
                   {previewData.metadata && (
-                    <div className="flex gap-2 flex-wrap mt-2">
-                      <Badge variant="outline">
-                        {previewData.metadata.totalRows || previewData.rows?.length || 0} Rows
-                      </Badge>
-                      <Badge variant="outline">{previewData.metadata.totalSeats || 0} Seats</Badge>
-                      {previewData.metadata.version && (
-                        <Badge variant="outline">Version {previewData.metadata.version}</Badge>
+                    <div className="space-y-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <Badge variant="outline">
+                          {previewData.metadata.totalRows || previewData.rows?.length || 0} Rows
+                        </Badge>
+                        <Badge variant="outline">{previewData.metadata.totalSeats || 0} Seats</Badge>
+                        {previewData.metadata.version && (
+                          <Badge variant="outline">Version {previewData.metadata.version}</Badge>
+                        )}
+                      </div>
+                      {previewData.metadata.features && (
+                        <div className="flex gap-2 flex-wrap">
+                          {previewData.metadata.features.stage?.enabled && (
+                            <Badge variant="secondary">Stage Area</Badge>
+                          )}
+                          {previewData.metadata.features.rowPositioning && (
+                            <Badge variant="secondary">Row Positioning</Badge>
+                          )}
+                          {previewData.metadata.features.rowRotation && (
+                            <Badge variant="secondary">Row Rotation</Badge>
+                          )}
+                          {previewData.metadata.features.zoomSupport && (
+                            <Badge variant="secondary">Zoom Support</Badge>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
@@ -190,7 +208,7 @@ export function ImportDialog({ onImport }: ImportDialogProps) {
               Cancel
             </Button>
             <Button onClick={handleImport} disabled={!selectedFile || validationErrors.length > 0}>
-              <Upload className="w-4 h-4 mr-2" />
+              <Download className="w-4 h-4 mr-2" />
               Import Map
             </Button>
           </div>

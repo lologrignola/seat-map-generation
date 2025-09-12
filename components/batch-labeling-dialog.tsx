@@ -147,7 +147,7 @@ export function BatchLabelingDialog({ onApplyPattern, selectedCount }: BatchLabe
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           <Wand2 className="w-4 h-4 mr-2" />
-          Advanced Patterns
+          Labeling
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">

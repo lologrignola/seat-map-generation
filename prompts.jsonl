@@ -1,0 +1,4 @@
+{"timestamp": "2025-09-12T18:07:00-03:00", "tool/model": "v0", "purpose": "Project boilerplate", "prompt": "Work in following MVP, attached the requirements and an example of a map", "notes": "Esto fue para crear la base del proyecto usando v0.dev"},
+{"timestamp": "2025-09-12T18:07:00-03:00", "tool/model": "lovable", "purpose": "Project boilerplate", "prompt": "Work in following MVP", "notes": "Esto fue para crear la base del proyecto usando lovable, despues me quede con la mejor version"},
+{"timestamp": "2025-09-12T18:07:00-03:00", "tool/model": "cursor", "purpose": "Polishing", "prompt": "N/A", "notes": "Despues simplemente itere con Cursor hasta que la app quede con mas funcionalidades y mejor visualmente"},
+

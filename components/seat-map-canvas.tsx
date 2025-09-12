@@ -7,94 +7,173 @@ import type { SeatMap, Row, Seat } from "./seat-map-builder"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Plus, Edit2, Check, X } from "lucide-react"
+import { Plus, Edit2, Check, X, Trash2, Minus, RotateCcw } from "lucide-react"
 
 interface SeatMapCanvasProps {
   seatMap: SeatMap
   onSeatMapChange: (seatMap: SeatMap) => void
-  selectedTool: "select" | "add-row" | "add-seat"
+  selectedTool: "select"
+  onToolChange: (tool: "select") => void
+  onDeleteRow: (rowId: string) => void
+  onDeleteSelectedSeats: () => void
 }
 
-export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMapCanvasProps) {
+export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolChange, onDeleteRow, onDeleteSelectedSeats }: SeatMapCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [editingRowLabel, setEditingRowLabel] = useState("")
-  const [editingSeatId, setEditingSeatId] = useState<string | null>(null)
-  const [editingSeatLabel, setEditingSeatLabel] = useState("")
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
   const [dragEnd, setDragEnd] = useState<{ x: number; y: number } | null>(null)
+  
+  // Row movement and rotation state
+  const [isMovingRow, setIsMovingRow] = useState(false)
+  const [movingRowId, setMovingRowId] = useState<string | null>(null)
+  const [moveStart, setMoveStart] = useState<{ x: number; y: number } | null>(null)
+  const [isRotatingRow, setIsRotatingRow] = useState(false)
+  const [rotatingRowId, setRotatingRowId] = useState<string | null>(null)
+  
+  // Track if row was dragged (to prevent selection on drag)
+  const [rowDragStart, setRowDragStart] = useState<{ x: number; y: number; rowId: string } | null>(null)
+  
+  // Zoom and pan state
+  const [zoomLevel, setZoomLevel] = useState(1)
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
 
-  const handleCanvasClick = useCallback(
-    (event: React.MouseEvent) => {
-      if (selectedTool === "add-row") {
-        const rect = canvasRef.current?.getBoundingClientRect()
-        if (!rect) return
+  // Zoom control functions
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel(prev => Math.min(prev * 1.2, 3)) // Max zoom 3x
+  }, [])
 
-        const x = event.clientX - rect.left
-        const y = event.clientY - rect.top
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel(prev => Math.max(prev / 1.2, 0.3)) // Min zoom 0.3x
+  }, [])
 
-        const newRow: Row = {
-          id: `row-${Date.now()}`,
-          label: `Row ${seatMap.rows.length + 1}`,
-          seats: [],
-          selected: false,
-        }
+  const handleResetZoom = useCallback(() => {
+    setZoomLevel(1)
+    setPanOffset({ x: 0, y: 0 })
+  }, [])
 
-        // Add a few default seats to the new row
-        for (let i = 0; i < 8; i++) {
-          newRow.seats.push({
-            id: `seat-${Date.now()}-${i}`,
-            label: `${i + 1}`,
-            x: x + i * 35,
-            y: y,
-            selected: false,
-            type: "regular",
-          })
-        }
+  // Pan functionality
+  const handlePanStart = useCallback((event: React.MouseEvent) => {
+    if (event.button === 1 || (event.button === 0 && event.ctrlKey)) { // Middle mouse or Ctrl+Left click
+      event.preventDefault()
+      setIsPanning(true)
+      setPanStart({ x: event.clientX, y: event.clientY })
+    }
+  }, [])
 
-        onSeatMapChange({
-          ...seatMap,
-          rows: [...seatMap.rows, newRow],
-        })
+  const handlePanMove = useCallback((event: React.MouseEvent) => {
+    if (!isPanning || !panStart) return
+
+    const deltaX = event.clientX - panStart.x
+    const deltaY = event.clientY - panStart.y
+
+    setPanOffset(prev => ({
+      x: prev.x + deltaX,
+      y: prev.y + deltaY
+    }))
+
+    setPanStart({ x: event.clientX, y: event.clientY })
+  }, [isPanning, panStart])
+
+  const handlePanEnd = useCallback(() => {
+    setIsPanning(false)
+    setPanStart(null)
+  }, [])
+
+  const handleWheel = useCallback((event: React.WheelEvent) => {
+    event.preventDefault()
+    const delta = event.deltaY > 0 ? 0.9 : 1.1
+    setZoomLevel(prev => Math.max(0.3, Math.min(3, prev * delta)))
+  }, [])
+
+  // Keyboard shortcuts for zoom
+  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+      switch (event.key) {
+        case '=':
+        case '+':
+          event.preventDefault()
+          handleZoomIn()
+          break
+        case '-':
+          event.preventDefault()
+          handleZoomOut()
+          break
+        case '0':
+          event.preventDefault()
+          handleResetZoom()
+          break
       }
-    },
-    [selectedTool, seatMap, onSeatMapChange],
-  )
+    }
+  }, [handleZoomIn, handleZoomOut, handleResetZoom])
+
+  // Helper function to convert mouse coordinates to zoom-adjusted coordinates
+  const getZoomAdjustedCoords = useCallback((event: React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return { x: 0, y: 0 }
+
+    const rawX = event.clientX - rect.left
+    const rawY = event.clientY - rect.top
+
+    // First apply zoom, then subtract pan offset (matching CSS transform order)
+    const x = rawX / zoomLevel - panOffset.x
+    const y = rawY / zoomLevel - panOffset.y
+
+    return { x, y }
+  }, [zoomLevel, panOffset])
+
+
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
-      if (selectedTool !== "select") return
+      // Handle panning first
+      if (event.button === 1 || (event.button === 0 && event.ctrlKey)) {
+        handlePanStart(event)
+        return
+      }
 
-      const rect = canvasRef.current?.getBoundingClientRect()
-      if (!rect) return
+      // Handle selection only if not panning and select tool is active
+      if (selectedTool !== "select" || isPanning) return
 
-      const x = event.clientX - rect.left
-      const y = event.clientY - rect.top
+      const { x, y } = getZoomAdjustedCoords(event)
 
       setIsDragging(true)
       setDragStart({ x, y })
       setDragEnd({ x, y })
     },
-    [selectedTool],
+    [selectedTool, getZoomAdjustedCoords, isPanning, handlePanStart],
   )
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
+      // Handle panning
+      if (isPanning) {
+        handlePanMove(event)
+        return
+      }
+
+      // Handle selection dragging
       if (!isDragging || !dragStart) return
 
-      const rect = canvasRef.current?.getBoundingClientRect()
-      if (!rect) return
-
-      const x = event.clientX - rect.left
-      const y = event.clientY - rect.top
+      const { x, y } = getZoomAdjustedCoords(event)
 
       setDragEnd({ x, y })
     },
-    [isDragging, dragStart],
+    [isDragging, dragStart, getZoomAdjustedCoords, isPanning, handlePanMove],
   )
 
   const handleMouseUp = useCallback(() => {
+    // Handle panning end
+    if (isPanning) {
+      handlePanEnd()
+      return
+    }
+
+    // Handle selection end
     if (!isDragging || !dragStart || !dragEnd) {
       setIsDragging(false)
       setDragStart(null)
@@ -108,55 +187,32 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
     const minY = Math.min(dragStart.y, dragEnd.y)
     const maxY = Math.max(dragStart.y, dragEnd.y)
 
-    // Select seats within the rectangle
-    const updatedRows = seatMap.rows.map((row) => ({
-      ...row,
-      seats: row.seats.map((seat) => {
-        const seatInSelection = seat.x >= minX - 16 && seat.x <= maxX + 16 && seat.y >= minY - 16 && seat.y <= maxY + 16
-        return { ...seat, selected: seatInSelection }
-      }),
-    }))
+    // Select rows that have any seats within the rectangle
+    const updatedRows = seatMap.rows.map((row) => {
+      const hasSeatInSelection = row.seats.some((seat) => {
+        // Calculate seat's actual position on canvas (accounting for row position and rotation)
+        const seatCanvasX = row.x + (seat.x - row.x) * Math.cos(row.rotation * Math.PI / 180) - (seat.y - row.y) * Math.sin(row.rotation * Math.PI / 180)
+        const seatCanvasY = row.y + (seat.x - row.x) * Math.sin(row.rotation * Math.PI / 180) + (seat.y - row.y) * Math.cos(row.rotation * Math.PI / 180)
+        
+        return seatCanvasX >= minX - 16 && seatCanvasX <= maxX + 16 && seatCanvasY >= minY - 16 && seatCanvasY <= maxY + 16
+      })
+      
+      return {
+        ...row,
+        selected: hasSeatInSelection,
+        // Clear all seat selections when selecting rows
+        seats: row.seats.map((seat) => ({ ...seat, selected: false }))
+      }
+    })
 
     onSeatMapChange({ ...seatMap, rows: updatedRows })
 
     setIsDragging(false)
     setDragStart(null)
     setDragEnd(null)
-  }, [isDragging, dragStart, dragEnd, seatMap, onSeatMapChange])
+  }, [isDragging, dragStart, dragEnd, seatMap, onSeatMapChange, isPanning, handlePanEnd])
 
-  const handleAddSeatToRow = useCallback(
-    (rowId: string, event: React.MouseEvent) => {
-      event.stopPropagation()
 
-      if (selectedTool !== "add-seat") return
-
-      const updatedRows = seatMap.rows.map((row) => {
-        if (row.id === rowId) {
-          const lastSeat = row.seats[row.seats.length - 1]
-          const newX = lastSeat ? lastSeat.x + 35 : 0
-          const newY = lastSeat ? lastSeat.y : 0
-
-          const newSeat: Seat = {
-            id: `seat-${Date.now()}`,
-            label: `${row.seats.length + 1}`,
-            x: newX,
-            y: newY,
-            selected: false,
-            type: "regular",
-          }
-
-          return {
-            ...row,
-            seats: [...row.seats, newSeat],
-          }
-        }
-        return row
-      })
-
-      onSeatMapChange({ ...seatMap, rows: updatedRows })
-    },
-    [selectedTool, seatMap, onSeatMapChange],
-  )
 
   const handleSeatClick = useCallback(
     (rowId: string, seatId: string, event: React.MouseEvent) => {
@@ -165,26 +221,20 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
       if (selectedTool === "select") {
         const isMultiSelect = event.ctrlKey || event.metaKey
 
+        // Select the entire row instead of individual seat
         const updatedRows = seatMap.rows.map((row) => {
           if (row.id === rowId) {
             return {
               ...row,
-              seats: row.seats.map((seat) => {
-                if (seat.id === seatId) {
-                  return { ...seat, selected: !seat.selected }
-                }
-                // If not multi-select, deselect other seats
-                return isMultiSelect ? seat : { ...seat, selected: false }
-              }),
+              selected: !row.selected,
+              // Clear all seat selections when selecting row
+              seats: row.seats.map((seat) => ({ ...seat, selected: false }))
             }
           }
-          // If not multi-select, deselect seats in other rows
+          // If not multi-select, deselect other rows
           return isMultiSelect
             ? row
-            : {
-                ...row,
-                seats: row.seats.map((seat) => ({ ...seat, selected: false })),
-              }
+            : { ...row, selected: false }
         })
 
         onSeatMapChange({ ...seatMap, rows: updatedRows })
@@ -196,6 +246,20 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
   const handleRowClick = useCallback(
     (rowId: string, event: React.MouseEvent) => {
       event.stopPropagation()
+
+      // Don't select if this was a drag operation
+      if (rowDragStart && rowDragStart.rowId === rowId) {
+        const { x: currentX, y: currentY } = getZoomAdjustedCoords(event)
+        const dragDistance = Math.sqrt(
+          Math.pow(currentX - rowDragStart.x, 2) + Math.pow(currentY - rowDragStart.y, 2)
+        )
+        
+        // If dragged more than 5 pixels, don't select
+        if (dragDistance > 5) {
+          setRowDragStart(null)
+          return
+        }
+      }
 
       if (selectedTool === "select") {
         const isMultiSelect = event.ctrlKey || event.metaKey
@@ -210,8 +274,125 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
 
         onSeatMapChange({ ...seatMap, rows: updatedRows })
       }
+      
+      setRowDragStart(null)
     },
-    [selectedTool, seatMap, onSeatMapChange],
+    [selectedTool, seatMap, onSeatMapChange, rowDragStart, getZoomAdjustedCoords],
+  )
+
+  // Row movement handlers
+  const handleRowMouseDown = useCallback(
+    (rowId: string, event: React.MouseEvent) => {
+      event.stopPropagation()
+      
+      if (selectedTool === "select") {
+        const { x, y } = getZoomAdjustedCoords(event)
+
+        // Record the starting position for drag detection
+        setRowDragStart({ x, y, rowId })
+        setIsMovingRow(true)
+        setMovingRowId(rowId)
+        setMoveStart({ x, y })
+      }
+    },
+    [selectedTool, getZoomAdjustedCoords],
+  )
+
+  const handleRowMouseMove = useCallback(
+    (event: React.MouseEvent) => {
+      if (!isMovingRow || !movingRowId || !moveStart) return
+
+      const { x, y } = getZoomAdjustedCoords(event)
+
+      const deltaX = x - moveStart.x
+      const deltaY = y - moveStart.y
+
+      // Get all selected rows (including the one being dragged)
+      const selectedRows = seatMap.rows.filter(row => row.selected || row.id === movingRowId)
+      const selectedRowIds = new Set(selectedRows.map(row => row.id))
+
+      const updatedRows = seatMap.rows.map((row) => {
+        if (selectedRowIds.has(row.id)) {
+          const newX = row.x + deltaX
+          const newY = row.y + deltaY
+          
+          // Update row position and all seat positions
+          const updatedSeats = row.seats.map((seat) => ({
+            ...seat,
+            x: seat.x + deltaX,
+            y: seat.y + deltaY,
+          }))
+
+          return {
+            ...row,
+            x: newX,
+            y: newY,
+            seats: updatedSeats,
+          }
+        }
+        return row
+      })
+
+      onSeatMapChange({ ...seatMap, rows: updatedRows })
+      setMoveStart({ x, y })
+    },
+    [isMovingRow, movingRowId, moveStart, seatMap, onSeatMapChange, getZoomAdjustedCoords],
+  )
+
+  const handleRowMouseUp = useCallback(() => {
+    setIsMovingRow(false)
+    setMovingRowId(null)
+    setMoveStart(null)
+    // Don't clear rowDragStart here - let handleRowClick handle it
+  }, [])
+
+  // Row rotation handlers
+  const handleRowRotation = useCallback(
+    (rowId: string, deltaAngle: number) => {
+      const updatedRows = seatMap.rows.map((row) => {
+        if (row.id === rowId) {
+          const newRotation = row.rotation + deltaAngle
+          
+          // Calculate rotation center (center of all seats)
+          const seatPositions = row.seats.map(seat => ({ x: seat.x, y: seat.y }))
+          const centerX = seatPositions.reduce((sum, pos) => sum + pos.x, 0) / seatPositions.length
+          const centerY = seatPositions.reduce((sum, pos) => sum + pos.y, 0) / seatPositions.length
+          
+          // Convert to radians
+          const angleRad = (deltaAngle * Math.PI) / 180
+          const cos = Math.cos(angleRad)
+          const sin = Math.sin(angleRad)
+          
+          // Rotate each seat around the center
+          const updatedSeats = row.seats.map((seat) => {
+            // Translate to origin
+            const relX = seat.x - centerX
+            const relY = seat.y - centerY
+            
+            // Rotate
+            const newRelX = relX * cos - relY * sin
+            const newRelY = relX * sin + relY * cos
+            
+            // Translate back
+            return {
+              ...seat,
+              x: newRelX + centerX,
+              y: newRelY + centerY,
+            }
+          })
+
+          return {
+            ...row,
+            rotation: newRotation,
+            seats: updatedSeats,
+          }
+        }
+        return row
+      })
+
+      onSeatMapChange({ ...seatMap, rows: updatedRows })
+    },
+    [seatMap, onSeatMapChange],
   )
 
   const selectAllSeatsInRow = useCallback(
@@ -254,29 +435,6 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
     setEditingRowLabel("")
   }, [])
 
-  const startEditingSeat = useCallback((seatId: string, currentLabel: string, event: React.MouseEvent) => {
-    event.stopPropagation()
-    setEditingSeatId(seatId)
-    setEditingSeatLabel(currentLabel)
-  }, [])
-
-  const saveSeatLabel = useCallback(() => {
-    if (!editingSeatId) return
-
-    const updatedRows = seatMap.rows.map((row) => ({
-      ...row,
-      seats: row.seats.map((seat) => (seat.id === editingSeatId ? { ...seat, label: editingSeatLabel } : seat)),
-    }))
-
-    onSeatMapChange({ ...seatMap, rows: updatedRows })
-    setEditingSeatId(null)
-    setEditingSeatLabel("")
-  }, [editingSeatId, editingSeatLabel, seatMap, onSeatMapChange])
-
-  const cancelSeatEdit = useCallback(() => {
-    setEditingSeatId(null)
-    setEditingSeatLabel("")
-  }, [])
 
   const toggleSeatType = useCallback(
     (rowId: string, seatId: string, event: React.MouseEvent) => {
@@ -300,26 +458,92 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
   )
 
   return (
-    <div className="relative">
-      {/* Stage indicator */}
-      <div className="text-center mb-8">
-        <div className="inline-block bg-muted px-8 py-2 rounded-lg text-muted-foreground font-medium">STAGE</div>
-      </div>
+    <div className="h-full flex flex-col">
 
-      {/* Canvas */}
-      <div
-        ref={canvasRef}
-        className={cn(
-          "relative min-h-[400px] bg-muted/20 rounded-lg border-2 border-dashed border-muted-foreground/20",
-          selectedTool === "add-row" && "cursor-crosshair",
-          selectedTool === "select" && "cursor-default",
-        )}
-        onClick={handleCanvasClick}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
+      {/* Large Canvas */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* Zoom Controls */}
+        <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleZoomIn}
+            className="h-8 w-8 p-0"
+            title="Zoom In"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleZoomOut}
+            className="h-8 w-8 p-0"
+            title="Zoom Out"
+          >
+            <Minus className="w-4 h-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleResetZoom}
+            className="h-8 w-8 p-0"
+            title="Reset Zoom"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </Button>
+          <div className="text-xs text-center text-muted-foreground mt-1">
+            {Math.round(zoomLevel * 100)}%
+          </div>
+        </div>
+        <div
+          ref={canvasRef}
+          className={cn(
+            "absolute inset-0 bg-muted/20",
+            isPanning ? "cursor-grabbing" : "cursor-default"
+          )}
+          onMouseDown={handleMouseDown}
+          onMouseMove={(e) => {
+            handleMouseMove(e)
+            handleRowMouseMove(e)
+          }}
+          onMouseUp={(e) => {
+            handleMouseUp()
+            handleRowMouseUp()
+          }}
+          onMouseLeave={(e) => {
+            handleMouseUp()
+            handleRowMouseUp()
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+          onWheel={handleWheel}
+          onKeyDown={handleKeyDown}
+          tabIndex={0}
+        >
+        {/* Zoom Container */}
+        <div
+          className="absolute inset-0 origin-top-left"
+          style={{
+            transform: `scale(${zoomLevel}) translate(${panOffset.x}px, ${panOffset.y}px)`,
+            transformOrigin: 'top left'
+          }}
+        >
+        {/* Fixed Stage Area */}
+        <div 
+          className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-gradient-to-b from-amber-100 to-amber-200 border-2 border-amber-400 rounded-lg shadow-lg pointer-events-none"
+          style={{
+            width: '600px',
+            height: '120px',
+            zIndex: 1
+          }}
+        >
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-amber-800">STAGE</div>
+              <div className="text-sm text-amber-600">Performance Area</div>
+            </div>
+          </div>
+        </div>
+
         {isDragging && dragStart && dragEnd && (
           <div
             className="absolute border-2 border-primary bg-primary/10 pointer-events-none"
@@ -336,79 +560,53 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
             <div className="text-center">
               <p className="text-lg mb-2">No rows created yet</p>
-              <p className="text-sm">Select "Add Row" tool and click to create your first row</p>
+              <p className="text-sm">Click "Add Rows" button in the toolbar to create your first row</p>
             </div>
           </div>
         )}
 
+
         {seatMap.rows.map((row) => (
-          <div key={row.id} className="absolute">
-            {/* Row label with inline editing */}
-            <div className="absolute -left-24 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              {editingRowId === row.id ? (
-                <div className="flex items-center gap-1">
-                  <Input
-                    value={editingRowLabel}
-                    onChange={(e) => setEditingRowLabel(e.target.value)}
-                    className="w-16 h-6 text-xs"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveRowLabel()
-                      if (e.key === "Escape") cancelRowEdit()
-                    }}
-                    autoFocus
-                  />
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={saveRowLabel}>
-                    <Check className="w-3 h-3" />
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={cancelRowEdit}>
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  <div
-                    className={cn(
-                      "px-2 py-1 text-xs font-medium rounded cursor-pointer flex items-center gap-1",
-                      row.selected
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80",
-                    )}
-                    onClick={(e) => handleRowClick(row.id, e)}
-                  >
-                    {row.label}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-4 w-4 p-0 opacity-50 hover:opacity-100"
-                      onClick={(e) => startEditingRow(row.id, row.label, e)}
-                    >
-                      <Edit2 className="w-2 h-2" />
-                    </Button>
-                  </div>
+          <div 
+            key={row.id} 
+            className="absolute"
+            style={{
+              left: row.x,
+              top: row.y,
+              transform: `rotate(${row.rotation}deg)`,
+              transformOrigin: 'left center'
+            }}
+          >
+            {/* Row selection box - appears when row is selected */}
+            {row.selected && (
+              <div 
+                className="absolute border-2 border-primary bg-primary/10 pointer-events-none"
+                style={{
+                  left: -10,
+                  top: -10,
+                  right: -10,
+                  bottom: -10,
+                  borderRadius: '8px'
+                }}
+              />
+            )}
 
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-5 text-xs px-1 bg-transparent"
-                    onClick={(e) => selectAllSeatsInRow(row.id, e)}
-                  >
-                    Select All
-                  </Button>
-                </div>
+            {/* Row clickable area */}
+            <div
+              className={cn(
+                "absolute cursor-pointer",
+                selectedTool === "select" && "cursor-move"
               )}
-
-              {/* Add seat button for this row */}
-              {selectedTool === "add-seat" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 w-6 p-0 bg-transparent"
-                  onClick={(e) => handleAddSeatToRow(row.id, e)}
-                >
-                  <Plus className="w-3 h-3" />
-                </Button>
-              )}
-            </div>
+              style={{
+                left: -10,
+                top: -10,
+                right: -10,
+                bottom: -10,
+                zIndex: 1
+              }}
+              onClick={(e) => handleRowClick(row.id, e)}
+              onMouseDown={(e) => handleRowMouseDown(row.id, e)}
+            />
 
             {/* Seats */}
             <div className="flex gap-1">
@@ -418,78 +616,50 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool }: SeatMa
                   className="relative"
                   style={{
                     position: "absolute",
-                    left: seat.x,
-                    top: seat.y,
+                    left: seat.x - row.x,
+                    top: seat.y - row.y,
                   }}
                 >
-                  {editingSeatId === seat.id ? (
-                    <div className="flex items-center gap-1">
-                      <Input
-                        value={editingSeatLabel}
-                        onChange={(e) => setEditingSeatLabel(e.target.value)}
-                        className="w-12 h-6 text-xs text-center"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveSeatLabel()
-                          if (e.key === "Escape") cancelSeatEdit()
-                        }}
-                        autoFocus
-                      />
-                      <div className="flex flex-col gap-1">
-                        <Button size="sm" variant="ghost" className="h-3 w-3 p-0" onClick={saveSeatLabel}>
-                          <Check className="w-2 h-2" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-3 w-3 p-0" onClick={cancelSeatEdit}>
-                          <X className="w-2 h-2" />
-                        </Button>
+                  <div
+                    className={cn(
+                      "w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition-colors group relative",
+                      seat.type === "accessible"
+                        ? "bg-blue-100 border-blue-300 hover:bg-blue-200"
+                        : "bg-green-100 border-green-300 hover:bg-green-200",
+                    )}
+                    onClick={(e) => handleSeatClick(row.id, seat.id, e)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      toggleSeatType(row.id, seat.id, e)
+                    }}
+                    title={`${row.label}, Seat ${seat.label}`}
+                  >
+                    {/* Seat type indicator */}
+                    {seat.type === "accessible" && (
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
+                        <span className="text-white text-[8px]">♿</span>
                       </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={cn(
-                        "w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-medium cursor-pointer transition-colors group relative",
-                        seat.selected
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : seat.type === "accessible"
-                            ? "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"
-                            : "bg-green-100 text-green-800 border-green-300 hover:bg-green-200",
-                      )}
-                      onClick={(e) => handleSeatClick(row.id, seat.id, e)}
-                      onDoubleClick={(e) => startEditingSeat(seat.id, seat.label, e)}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        toggleSeatType(row.id, seat.id, e)
-                      }}
-                    >
-                      {seat.label}
-
-                      {/* Seat type indicator */}
-                      {seat.type === "accessible" && (
-                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
-                          <span className="text-white text-[8px]">♿</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         ))}
+        </div>
+        {/* End Zoom Container */}
+        </div>
       </div>
 
-      {/* Instructions */}
-      <div className="mt-4 text-sm text-muted-foreground space-y-1">
-        <p>
-          <strong>Selection:</strong>
-          {selectedTool === "select" &&
-            " Click to select • Ctrl/Cmd+Click for multi-select • Drag to select area • Use 'Select All' for entire rows"}
-          {selectedTool === "add-row" && " Click anywhere on the canvas to add a new row"}
-          {selectedTool === "add-seat" && " Click the + button next to row labels to add seats"}
-        </p>
-        <p>
-          <strong>Editing:</strong> Double-click labels to edit • Right-click seats to toggle accessible type • Click
-          edit icons for quick access
-        </p>
+      {/* Compact Instructions Bar */}
+      <div className="flex-shrink-0 border-t border-border/50 bg-muted/30 px-4 py-2">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div>
+            <span className="font-medium">Quick Help:</span>
+            Click any seat to select entire row • Drag to select multiple rows • Drag selected rows to move • Use "Add Rows" button to create new rows
+            <span className="ml-4">• Ctrl+Drag or Middle mouse to pan • Mouse wheel to zoom • Use toolbar for row controls and batch labeling</span>
+          </div>
+        </div>
       </div>
     </div>
   )

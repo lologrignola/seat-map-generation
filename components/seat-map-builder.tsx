@@ -2,14 +2,13 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SeatMapCanvas } from "./seat-map-canvas"
 import { Toolbar } from "./toolbar"
-import { ImportDialog } from "./import-dialog"
 import { ExportDialog } from "./export-dialog"
-import { Upload, RotateCcw } from "lucide-react"
+import { Download, RotateCcw, Upload, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export interface Seat {
@@ -26,6 +25,9 @@ export interface Row {
   label: string
   seats: Seat[]
   selected: boolean
+  x: number
+  y: number
+  rotation: number // in degrees
 }
 
 export interface SeatMap {
@@ -37,6 +39,16 @@ export interface SeatMap {
     updatedAt: string
     totalSeats: number
     totalRows: number
+    features?: {
+      stage: {
+        enabled: boolean
+        position: { x: number; y: number }
+        size: { width: number; height: number }
+      }
+      rowPositioning: boolean
+      rowRotation: boolean
+      zoomSupport: boolean
+    }
   }
 }
 
@@ -66,6 +78,18 @@ const validateSeatMapSchema = (data: any): { isValid: boolean; errors: string[] 
       errors.push(`Row ${rowIndex + 1}: Label is required and must be a string`)
     }
 
+    if (typeof row.x !== "number" || typeof row.y !== "number") {
+      errors.push(`Row ${rowIndex + 1}: X and Y coordinates must be numbers`)
+    }
+
+    if (typeof row.rotation !== "number") {
+      errors.push(`Row ${rowIndex + 1}: Rotation must be a number`)
+    }
+
+    if (typeof row.selected !== "boolean") {
+      errors.push(`Row ${rowIndex + 1}: Selected must be a boolean`)
+    }
+
     if (!Array.isArray(row.seats)) {
       errors.push(`Row ${rowIndex + 1}: Seats must be an array`)
       return
@@ -84,6 +108,10 @@ const validateSeatMapSchema = (data: any): { isValid: boolean; errors: string[] 
         errors.push(`Row ${rowIndex + 1}, Seat ${seatIndex + 1}: X and Y coordinates must be numbers`)
       }
 
+      if (typeof seat.selected !== "boolean") {
+        errors.push(`Row ${rowIndex + 1}, Seat ${seatIndex + 1}: Selected must be a boolean`)
+      }
+
       if (seat.type && !["regular", "accessible"].includes(seat.type)) {
         errors.push(`Row ${rowIndex + 1}, Seat ${seatIndex + 1}: Type must be 'regular' or 'accessible'`)
       }
@@ -99,8 +127,37 @@ export function SeatMapBuilder() {
     rows: [],
   })
 
-  const [selectedTool, setSelectedTool] = useState<"select" | "add-row" | "add-seat">("select")
+  const [selectedTool, setSelectedTool] = useState<"select">("select")
   const { toast } = useToast()
+
+  // Load seat map from localStorage on component mount
+  useEffect(() => {
+    const savedSeatMap = localStorage.getItem('seatMapBuilder_data')
+    if (savedSeatMap) {
+      try {
+        const parsed = JSON.parse(savedSeatMap)
+        const validation = validateSeatMapSchema(parsed)
+        if (validation.isValid) {
+          setSeatMap(parsed)
+          toast({
+            title: "Session restored",
+            description: "Your previous work has been loaded",
+          })
+        } else {
+          console.warn('Invalid saved data:', validation.errors)
+        }
+      } catch (error) {
+        console.warn('Failed to parse saved data:', error)
+      }
+    }
+  }, [toast])
+
+  // Save seat map to localStorage whenever it changes
+  useEffect(() => {
+    if (seatMap.rows.length > 0) {
+      localStorage.setItem('seatMapBuilder_data', JSON.stringify(seatMap))
+    }
+  }, [seatMap])
 
   const handleNewMap = useCallback(() => {
     const confirmed =
@@ -113,6 +170,7 @@ export function SeatMapBuilder() {
         name: "Untitled Map",
         rows: [],
       })
+      localStorage.removeItem('seatMapBuilder_data')
       toast({
         title: "New map created",
         description: "Started with a fresh seat map",
@@ -127,11 +185,21 @@ export function SeatMapBuilder() {
     const exportData: SeatMap = {
       ...seatMap,
       metadata: {
-        version: "1.0",
+        version: "1.1",
         createdAt: seatMap.metadata?.createdAt || now,
         updatedAt: now,
         totalSeats,
         totalRows: seatMap.rows.length,
+        features: {
+          stage: {
+            enabled: true,
+            position: { x: 0, y: 8 },
+            size: { width: 600, height: 120 }
+          },
+          rowPositioning: true,
+          rowRotation: true,
+          zoomSupport: true
+        }
       },
     }
 
@@ -183,6 +251,9 @@ export function SeatMapBuilder() {
             rows: importedData.rows.map((row: any) => ({
               ...row,
               selected: false,
+              x: row.x || 0,
+              y: row.y || 0,
+              rotation: row.rotation || 0,
               seats: row.seats.map((seat: any) => ({
                 ...seat,
                 selected: false,
@@ -211,71 +282,123 @@ export function SeatMapBuilder() {
     [toast],
   )
 
-  const handleQuickImport = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
+  const handleDeleteRow = useCallback(
+    (rowId: string) => {
+      const updatedRows = seatMap.rows.filter((row) => row.id !== rowId)
+      setSeatMap({ ...seatMap, rows: updatedRows })
+      toast({
+        title: "Row deleted",
+        description: "Row and all its seats have been removed",
+      })
+    },
+    [seatMap, toast],
+  )
+
+  const handleDeleteSelectedSeats = useCallback(() => {
+    const updatedRows = seatMap.rows.map((row) => ({
+      ...row,
+      seats: row.seats.filter((seat) => !seat.selected),
+    })).filter((row) => row.seats.length > 0) // Remove empty rows
+
+    const deletedSeats = seatMap.rows.reduce((acc, row) => acc + row.seats.filter(seat => seat.selected).length, 0)
+    
+    setSeatMap({ ...seatMap, rows: updatedRows })
+    
+    if (deletedSeats > 0) {
+      toast({
+        title: "Seats deleted",
+        description: `${deletedSeats} selected seats have been removed`,
+      })
+    }
+  }, [seatMap, toast])
+
+  const handleClearSession = useCallback(() => {
+    const confirmed = confirm("Are you sure you want to clear the saved session? This will remove all saved data but keep your current work.")
+    if (confirmed) {
+      localStorage.removeItem('seatMapBuilder_data')
+      toast({
+        title: "Session cleared",
+        description: "Saved data has been removed",
+      })
+    }
+  }, [toast])
+
+  const handleQuickImport = useCallback(() => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+    input.onchange = (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0]
       if (file) {
         handleImportMap(file)
       }
-      // Reset input
-      event.target.value = ""
-    },
-    [handleImportMap],
-  )
+    }
+    input.click()
+  }, [handleImportMap])
 
   return (
-    <div className="space-y-4">
-      {/* Header Actions */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button onClick={handleNewMap} variant="outline" size="sm">
-            <RotateCcw className="w-4 h-4 mr-2" />
-            New Map
-          </Button>
-
-          <ExportDialog seatMap={seatMap} onExport={handleExportMap} />
-
-          {/* Quick import */}
-          <div className="relative">
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleQuickImport}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-            <Button variant="outline" size="sm">
-              <Upload className="w-4 h-4 mr-2" />
-              Quick Import
-            </Button>
+    <div className="h-screen flex flex-col">
+      {/* Compact Header */}
+      <div className="flex-shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-semibold">SeatMapBuilder</h1>
+            <div className="flex items-center gap-2">
+              <Button onClick={handleNewMap} variant="outline" size="sm">
+                <RotateCcw className="w-4 h-4 mr-2" />
+                New Map
+              </Button>
+              <ExportDialog seatMap={seatMap} onExport={handleExportMap} />
+              <Button onClick={handleQuickImport} variant="outline" size="sm">
+                <Download className="w-4 h-4 mr-2" />
+                Quick Import
+              </Button>
+              <Button onClick={handleClearSession} variant="outline" size="sm">
+                <Trash2 className="w-4 h-4 mr-2" />
+                Clear Session
+              </Button>
+            </div>
           </div>
 
-          <ImportDialog onImport={handleImportMap} />
-        </div>
-
-        <div className="text-sm text-muted-foreground">
-          <div className="flex items-center gap-4">
-            <span>Map: {seatMap.name}</span>
-            <span>Rows: {seatMap.rows.length}</span>
-            <span>Seats: {seatMap.rows.reduce((acc, row) => acc + row.seats.length, 0)}</span>
-            {seatMap.metadata?.updatedAt && (
-              <span>Updated: {new Date(seatMap.metadata.updatedAt).toLocaleDateString()}</span>
-            )}
+          <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4">
+              <span className="font-medium">{seatMap.name}</span>
+              <span>{seatMap.rows.length} rows</span>
+              <span>{seatMap.rows.reduce((acc, row) => acc + row.seats.length, 0)} seats</span>
+              {seatMap.rows.length > 0 && (
+                <span className="text-xs text-green-600">💾 Auto-saved</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Toolbar */}
-      <Toolbar
-        selectedTool={selectedTool}
-        onToolChange={setSelectedTool}
-        seatMap={seatMap}
-        onSeatMapChange={setSeatMap}
-      />
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Compact Sidebar */}
+        <div className="w-80 flex-shrink-0 border-r bg-muted/30 overflow-y-auto">
+          <div className="p-4">
+            <Toolbar
+              selectedTool={selectedTool}
+              onToolChange={setSelectedTool}
+              seatMap={seatMap}
+              onSeatMapChange={setSeatMap}
+            />
+          </div>
+        </div>
 
-      {/* Canvas */}
-      <Card className="p-4">
-        <SeatMapCanvas seatMap={seatMap} onSeatMapChange={setSeatMap} selectedTool={selectedTool} />
-      </Card>
+        {/* Large Canvas Area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <SeatMapCanvas 
+            seatMap={seatMap} 
+            onSeatMapChange={setSeatMap} 
+            selectedTool={selectedTool}
+            onToolChange={setSelectedTool}
+            onDeleteRow={handleDeleteRow}
+            onDeleteSelectedSeats={handleDeleteSelectedSeats}
+          />
+        </div>
+      </div>
     </div>
   )
 }
