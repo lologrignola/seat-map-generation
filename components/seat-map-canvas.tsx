@@ -12,13 +12,15 @@ import { Plus, Edit2, Check, X, Trash2, Minus, RotateCcw } from "lucide-react"
 interface SeatMapCanvasProps {
   seatMap: SeatMap
   onSeatMapChange: (seatMap: SeatMap) => void
+  onSeatMapChangeGrouped?: (seatMap: SeatMap) => void
+  onEndUndoGroup?: () => void
   selectedTool: "select"
   onToolChange: (tool: "select") => void
   onDeleteRow: (rowId: string) => void
   onDeleteSelectedSeats: () => void
 }
 
-export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolChange, onDeleteRow, onDeleteSelectedSeats }: SeatMapCanvasProps) {
+export function SeatMapCanvas({ seatMap, onSeatMapChange, onSeatMapChangeGrouped, onEndUndoGroup, selectedTool, onToolChange, onDeleteRow, onDeleteSelectedSeats }: SeatMapCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [editingRowLabel, setEditingRowLabel] = useState("")
@@ -226,7 +228,7 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
           if (row.id === rowId) {
             return {
               ...row,
-              selected: !row.selected,
+              selected: true, // Always select the row when clicking a seat
               // Clear all seat selections when selecting row
               seats: row.seats.map((seat) => ({ ...seat, selected: false }))
             }
@@ -333,18 +335,29 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
         return row
       })
 
-      onSeatMapChange({ ...seatMap, rows: updatedRows })
+      // Use grouped state update for smooth dragging
+      if (onSeatMapChangeGrouped) {
+        onSeatMapChangeGrouped({ ...seatMap, rows: updatedRows })
+      } else {
+        onSeatMapChange({ ...seatMap, rows: updatedRows })
+      }
       setMoveStart({ x, y })
     },
-    [isMovingRow, movingRowId, moveStart, seatMap, onSeatMapChange, getZoomAdjustedCoords],
+    [isMovingRow, movingRowId, moveStart, seatMap, onSeatMapChange, onSeatMapChangeGrouped, getZoomAdjustedCoords],
   )
 
   const handleRowMouseUp = useCallback(() => {
     setIsMovingRow(false)
     setMovingRowId(null)
     setMoveStart(null)
+    
+    // End the undo group when dragging is complete
+    if (onEndUndoGroup) {
+      onEndUndoGroup()
+    }
+    
     // Don't clear rowDragStart here - let handleRowClick handle it
-  }, [])
+  }, [onEndUndoGroup])
 
   // Row rotation handlers
   const handleRowRotation = useCallback(
@@ -445,7 +458,7 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
           return {
             ...row,
             seats: row.seats.map((seat) =>
-              seat.id === seatId ? { ...seat, type: seat.type === "regular" ? "accessible" : "regular" } : seat,
+              seat.id === seatId ? { ...seat, type: seat.type === "regular" ? "accessible" as const : "regular" as const } : seat,
             ),
           }
         }
@@ -462,43 +475,47 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
 
       {/* Large Canvas */}
       <div className="flex-1 relative overflow-hidden">
-        {/* Zoom Controls */}
-        <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleZoomIn}
-            className="h-8 w-8 p-0"
-            title="Zoom In"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleZoomOut}
-            className="h-8 w-8 p-0"
-            title="Zoom Out"
-          >
-            <Minus className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleResetZoom}
-            className="h-8 w-8 p-0"
-            title="Reset Zoom"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-          <div className="text-xs text-center text-muted-foreground mt-1">
-            {Math.round(zoomLevel * 100)}%
+        {/* Enhanced Zoom Controls */}
+        <div className="absolute top-6 right-6 z-10 flex flex-col gap-2">
+          <div className="bg-background/95 backdrop-blur-sm border border-border/50 rounded-lg shadow-lg p-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleZoomIn}
+              className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
+              title="Zoom In (Ctrl + +)"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleZoomOut}
+              className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
+              title="Zoom Out (Ctrl + -)"
+            >
+              <Minus className="w-4 h-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleResetZoom}
+              className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
+              title="Reset Zoom (Ctrl + 0)"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="bg-background/95 backdrop-blur-sm border border-border/50 rounded-md px-2 py-1 shadow-sm">
+            <div className="text-xs font-medium text-center text-foreground">
+              {Math.round(zoomLevel * 100)}%
+            </div>
           </div>
         </div>
         <div
           ref={canvasRef}
           className={cn(
-            "absolute inset-0 bg-muted/20",
+            "absolute inset-0 bg-gradient-to-br from-background via-muted/10 to-muted/20",
             isPanning ? "cursor-grabbing" : "cursor-default"
           )}
           onMouseDown={handleMouseDown}
@@ -527,21 +544,24 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
             transformOrigin: 'top left'
           }}
         >
-        {/* Fixed Stage Area */}
+        {/* Grid System */}
+        <div className="absolute inset-0 opacity-20 pointer-events-none">
+          <svg width="100%" height="100%" className="absolute inset-0">
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-border"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+        </div>
+
+        {/* Simple Stage Text */}
         <div 
-          className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-gradient-to-b from-amber-100 to-amber-200 border-2 border-amber-400 rounded-lg shadow-lg pointer-events-none"
-          style={{
-            width: '600px',
-            height: '120px',
-            zIndex: 1
-          }}
+          className="absolute top-8 left-1/2 transform -translate-x-1/2 pointer-events-none"
+          style={{ zIndex: 1 }}
         >
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-amber-800">STAGE</div>
-              <div className="text-sm text-amber-600">Performance Area</div>
-            </div>
-          </div>
+          <div className="text-4xl font-medium text-gray-400">STAGE</div>
         </div>
 
         {isDragging && dragStart && dragEnd && (
@@ -577,18 +597,25 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
               transformOrigin: 'left center'
             }}
           >
-            {/* Row selection box - appears when row is selected */}
+            {/* Enhanced Row selection box - appears when row is selected */}
             {row.selected && (
               <div 
-                className="absolute border-2 border-primary bg-primary/10 pointer-events-none"
+                className="absolute border-2 border-primary bg-gradient-to-br from-primary/10 to-primary/5 pointer-events-none shadow-lg"
                 style={{
-                  left: -10,
-                  top: -10,
-                  right: -10,
-                  bottom: -10,
-                  borderRadius: '8px'
+                  left: -12,
+                  top: -12,
+                  right: -12,
+                  bottom: -12,
+                  borderRadius: '12px',
+                  boxShadow: '0 0 0 1px rgba(var(--primary), 0.2), 0 4px 12px rgba(var(--primary), 0.15)'
                 }}
-              />
+              >
+                {/* Selection indicator corners */}
+                <div className="absolute -top-1 -left-1 w-3 h-3 border-l-2 border-t-2 border-primary rounded-tl-lg"></div>
+                <div className="absolute -top-1 -right-1 w-3 h-3 border-r-2 border-t-2 border-primary rounded-tr-lg"></div>
+                <div className="absolute -bottom-1 -left-1 w-3 h-3 border-l-2 border-b-2 border-primary rounded-bl-lg"></div>
+                <div className="absolute -bottom-1 -right-1 w-3 h-3 border-r-2 border-b-2 border-primary rounded-br-lg"></div>
+              </div>
             )}
 
             {/* Row clickable area */}
@@ -622,10 +649,16 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
                 >
                   <div
                     className={cn(
-                      "w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition-colors group relative",
+                      "w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 group relative shadow-sm hover:shadow-md",
                       seat.type === "accessible"
-                        ? "bg-blue-100 border-blue-300 hover:bg-blue-200"
-                        : "bg-green-100 border-green-300 hover:bg-green-200",
+                        ? "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300/60 hover:from-blue-100 hover:to-blue-200 hover:border-blue-400/80 hover:scale-105"
+                        : row.category === "ground-floor"
+                        ? "bg-gradient-to-br from-red-50 to-red-100 border-red-300/60 hover:from-red-100 hover:to-red-200 hover:border-red-400/80 hover:scale-105"
+                        : row.category === "balcony"
+                        ? "bg-gradient-to-br from-green-50 to-green-100 border-green-300/60 hover:from-green-100 hover:to-green-200 hover:border-green-400/80 hover:scale-105"
+                        : row.category === "wheelchair"
+                        ? "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300/60 hover:from-blue-100 hover:to-blue-200 hover:border-blue-400/80 hover:scale-105"
+                        : "bg-gradient-to-br from-gray-50 to-gray-100 border-gray-300/60 hover:from-gray-100 hover:to-gray-200 hover:border-gray-400/80 hover:scale-105",
                     )}
                     onClick={(e) => handleSeatClick(row.id, seat.id, e)}
                     onContextMenu={(e) => {
@@ -634,12 +667,20 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
                     }}
                     title={`${row.label}, Seat ${seat.label}`}
                   >
+                    {/* Seat number */}
+                    <span className="text-xs font-medium text-foreground/70 group-hover:text-foreground transition-colors">
+                      {seat.label}
+                    </span>
+                    
                     {/* Seat type indicator */}
                     {seat.type === "accessible" && (
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
-                        <span className="text-white text-[8px]">♿</span>
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-sm">
+                        <span className="text-white text-[8px] font-bold">♿</span>
                       </div>
                     )}
+                    
+                    {/* Hover effect overlay */}
+                    <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
                   </div>
                 </div>
               ))}
@@ -651,13 +692,28 @@ export function SeatMapCanvas({ seatMap, onSeatMapChange, selectedTool, onToolCh
         </div>
       </div>
 
-      {/* Compact Instructions Bar */}
-      <div className="flex-shrink-0 border-t border-border/50 bg-muted/30 px-4 py-2">
+      {/* Enhanced Instructions Bar */}
+      <div className="flex-shrink-0 border-t border-border/50 bg-gradient-to-r from-background via-muted/20 to-background px-6 py-3">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div>
-            <span className="font-medium">Quick Help:</span>
-            Click any seat to select entire row • Drag to select multiple rows • Drag selected rows to move • Use "Add Rows" button to create new rows
-            <span className="ml-4">• Ctrl+Drag or Middle mouse to pan • Mouse wheel to zoom • Use toolbar for row controls and batch labeling</span>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
+              <span className="font-semibold text-foreground">Quick Help:</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span>Click seat to select row</span>
+              <span>•</span>
+              <span>Drag to select multiple rows</span>
+              <span>•</span>
+              <span>Drag selected rows to move</span>
+              <span>•</span>
+              <span>Ctrl+Drag to pan</span>
+              <span>•</span>
+              <span>Mouse wheel to zoom</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2 py-1 bg-primary/10 text-primary rounded-md font-medium">Professional</span>
           </div>
         </div>
       </div>
