@@ -6,8 +6,13 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'SeatMapBuilder',
-  description: 'Created with v0',
+  description: 'Professional seating design and management tool by Lorenzo Grignola',
   generator: 'v0.app',
+  authors: [{ name: 'Lorenzo Grignola', url: 'https://github.com/lologrignola' }],
+  keywords: ['seating', 'venue', 'design', 'management', 'seats', 'map'],
+  icons: {
+    icon: '/favicon.svg',
+  },
 }
 
 export default function RootLayout({

@@ -10,6 +10,8 @@ import { SeatMapCanvas } from "./seat-map-canvas"
 import { Toolbar } from "./toolbar"
 import { ExportDialog } from "./export-dialog"
 import { PropertiesPanel } from "./properties-panel"
+import { Logo } from "./logo"
+import { Footer } from "./footer"
 import { Download, RotateCcw, Upload, Trash2, Undo2, Redo2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useUndoRedo } from "@/hooks/use-undo-redo"
@@ -450,17 +452,7 @@ export function SeatMapBuilder() {
         <div className="flex items-center justify-between px-8 py-4">
           <div className="flex items-center gap-6">
             {/* Brand Logo */}
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center shadow-sm">
-                <span className="text-primary-foreground font-bold text-sm">SM</span>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
-                  SeatMapBuilder
-                </h1>
-                <p className="text-xs text-muted-foreground -mt-1">Professional seating design</p>
-              </div>
-            </div>
+            <Logo size="md" />
             
             {/* Action Buttons */}
             <div className="flex items-center gap-2">
@@ -584,6 +576,9 @@ export function SeatMapBuilder() {
           onBulkUpdate={handleBulkUpdate}
         />
       </div>
+
+      {/* Footer */}
+      <Footer />
     </div>
   )
 }
