@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import type { SeatMap } from "./seat-map-builder"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import type { SeatMap, Row } from "./seat-map-builder"
 import { MousePointer, Plus, Trash2, Tag, Square, SquareCheck } from "lucide-react"
 import { useState } from "react"
 import { BatchLabelingDialog, type BatchPattern } from "./batch-labeling-dialog"
@@ -25,6 +26,7 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
   const [showCreateRowsDialog, setShowCreateRowsDialog] = useState(false)
   const [rowCount, setRowCount] = useState(3)
   const [seatsPerRow, setSeatsPerRow] = useState(8)
+  const [category, setCategory] = useState<"ground-floor" | "balcony" | "wheelchair">("ground-floor")
   const rowSpacing = 50 // Fixed spacing
 
   const handleCreateMultipleRows = () => {
@@ -41,7 +43,7 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
       const rowX = canvasPadding
       const rowY = i * rowSpacing + 50
       
-      const newRow = {
+      const newRow: Row = {
         id: `row-${Date.now()}-${i}`,
         label: `Row ${rowNumber}`,
         seats: [],
@@ -49,6 +51,14 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
         x: rowX,
         y: rowY,
         rotation: 0,
+        category: category,
+        sectionLabel: "",
+        seatSpacing: 4,
+        curve: 0,
+        rowLabelEnabled: true,
+        displayedLabel: `Row ${rowNumber}`,
+        displayedType: "row",
+        entrance: "",
       }
 
       // Add seats to each row with proper positioning
@@ -138,18 +148,25 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
   }
 
   return (
-    <div className="space-y-4">
-      {/* Tools */}
-      <div>
-        <Label className="text-sm font-medium mb-2 block">Tools</Label>
-        <div className="grid grid-cols-2 gap-1">
+    <div className="space-y-6">
+      {/* Tools Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-4 bg-gradient-to-b from-primary to-primary/60 rounded-full"></div>
+          <Label className="text-sm font-semibold text-foreground">Tools</Label>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
           <Button
             variant={selectedTool === "select" ? "default" : "outline"}
             size="sm"
             onClick={() => onToolChange("select")}
-            className={`h-6 text-xs px-2 ${selectedTool === "select" ? "ring-2 ring-primary/20" : ""}`}
+            className={`h-8 text-xs px-3 font-medium transition-all duration-200 ${
+              selectedTool === "select" 
+                ? "bg-primary text-primary-foreground shadow-md ring-2 ring-primary/20" 
+                : "hover:bg-primary/5 hover:border-primary/20"
+            }`}
           >
-            <MousePointer className="w-3 h-3 mr-1" />
+            <MousePointer className="w-3.5 h-3.5 mr-1.5" />
             Select
           </Button>
           <Dialog open={showCreateRowsDialog} onOpenChange={setShowCreateRowsDialog}>
@@ -157,9 +174,9 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
               <Button
                 variant="outline"
                 size="sm"
-                className="h-6 text-xs px-2"
+                className="h-8 text-xs px-3 font-medium hover:bg-primary/5 hover:border-primary/20 transition-all duration-200"
               >
-                <Plus className="w-3 h-3 mr-1" />
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
                 Add Rows
               </Button>
             </DialogTrigger>
@@ -192,6 +209,34 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
                     />
                   </div>
                 </div>
+                <div>
+                  <Label htmlFor="category">Category</Label>
+                  <Select value={category} onValueChange={(value: "ground-floor" | "balcony" | "wheelchair") => setCategory(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ground-floor">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                          <span>Ground Floor</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="balcony">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                          <span>Balcony</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="wheelchair">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                          <span>Wheelchair</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setShowCreateRowsDialog(false)}>
                     Cancel
@@ -204,60 +249,79 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
             </DialogContent>
           </Dialog>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">
+        <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
           Click "Add Rows" to create single or multiple rows with seats. Use "Select" to interact with rows.
         </p>
       </div>
 
-      <Separator />
+      <Separator className="bg-border/50" />
 
       {/* Quick Actions */}
-      <div>
-        <Label className="text-sm font-medium mb-2 block">Quick Actions</Label>
-        <div className="grid grid-cols-2 gap-1">
-          <Button variant="outline" size="sm" onClick={handleSelectAll} className="h-6 text-xs px-1">
-            <SquareCheck className="w-3 h-3 mr-1" />
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-4 bg-gradient-to-b from-blue-500 to-blue-400 rounded-full"></div>
+          <Label className="text-sm font-semibold text-foreground">Quick Actions</Label>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleSelectAll} 
+            className="h-8 text-xs px-3 font-medium hover:bg-blue-50 hover:border-blue-200 transition-all duration-200"
+          >
+            <SquareCheck className="w-3.5 h-3.5 mr-1.5" />
             Select All
           </Button>
-          <Button variant="outline" size="sm" onClick={handleClearSelection} className="h-6 text-xs px-1">
-            <Square className="w-3 h-3 mr-1" />
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleClearSelection} 
+            className="h-8 text-xs px-3 font-medium hover:bg-gray-50 hover:border-gray-200 transition-all duration-200"
+          >
+            <Square className="w-3.5 h-3.5 mr-1.5" />
             Clear
           </Button>
         </div>
       </div>
 
-      <Separator />
+      <Separator className="bg-border/50" />
 
       {/* Selection Actions */}
-      <div>
-        <Label className="text-sm font-medium mb-2 block">
-          Selection ({selectedRows.length} rows)
-        </Label>
-        <div className="flex gap-1">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-4 bg-gradient-to-b from-orange-500 to-orange-400 rounded-full"></div>
+          <Label className="text-sm font-semibold text-foreground">
+            Selection ({selectedRows.length} rows)
+          </Label>
+        </div>
+        <div className="flex gap-2">
           <Button
             variant="destructive"
             size="sm"
             onClick={handleDeleteSelected}
             disabled={selectedRows.length === 0}
-            className="h-6 text-xs px-2 w-full"
+            className="h-8 text-xs px-3 w-full font-medium transition-all duration-200 disabled:opacity-50"
           >
-            <Trash2 className="w-3 h-3 mr-1" />
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
             Delete Selected
           </Button>
         </div>
       </div>
 
-      <Separator />
+      <Separator className="bg-border/50" />
 
       {/* Row Controls */}
       {selectedRows.length === 1 && (
-        <div>
-          <Label className="text-sm font-medium mb-2 block">Row Controls</Label>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-1 h-4 bg-gradient-to-b from-green-500 to-green-400 rounded-full"></div>
+            <Label className="text-sm font-semibold text-foreground">Row Controls</Label>
+          </div>
           
           {/* Row Label Editing */}
-          <div className="mb-2">
-            <Label htmlFor="row-label" className="text-xs">Row Label</Label>
-            <div className="flex gap-1">
+          <div className="space-y-2">
+            <Label htmlFor="row-label" className="text-xs font-medium text-muted-foreground">Row Label</Label>
+            <div className="flex gap-2">
               <Input
                 id="row-label"
                 value={selectedRows[0]?.label || ''}
@@ -269,21 +333,20 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
                   )
                   onSeatMapChange({ ...seatMap, rows: updatedRows })
                 }}
-                className="flex-1 h-7 text-xs"
-                size="sm"
+                className="flex-1 h-8 text-xs border-border/50 focus:border-primary/50 focus:ring-primary/20"
               />
             </div>
           </div>
 
 
           {/* Rotation Controls */}
-          <div className="mb-2">
-            <Label className="text-xs mb-1 block">Rotation</Label>
-            <div className="flex gap-1">
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-muted-foreground">Rotation</Label>
+            <div className="flex gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                className="h-6 w-6 p-0 text-xs"
+                className="h-8 w-8 p-0 text-sm font-medium hover:bg-primary/5 hover:border-primary/20 transition-all duration-200"
                 onClick={() => {
                   const rowId = selectedRows[0].id
                   const updatedRows = seatMap.rows.map(row => {
@@ -335,7 +398,7 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
               <Button
                 size="sm"
                 variant="outline"
-                className="h-6 w-6 p-0 text-xs"
+                className="h-8 w-8 p-0 text-sm font-medium hover:bg-primary/5 hover:border-primary/20 transition-all duration-200"
                 onClick={() => {
                   const rowId = selectedRows[0].id
                   const updatedRows = seatMap.rows.map(row => {
@@ -388,26 +451,32 @@ export function Toolbar({ selectedTool, onToolChange, seatMap, onSeatMapChange }
           </div>
 
           {/* Row Info */}
-          <div className="text-xs text-muted-foreground">
-            <div>Seats: {selectedRows[0]?.seats.length || 0}</div>
-            <div>Rotation: {Math.round(selectedRows[0]?.rotation || 0)}°</div>
+          <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+            <div className="text-xs font-medium text-muted-foreground">Row Information</div>
+            <div className="text-xs text-foreground space-y-0.5">
+              <div>Seats: <span className="font-semibold">{selectedRows[0]?.seats.length || 0}</span></div>
+              <div>Rotation: <span className="font-semibold">{Math.round(selectedRows[0]?.rotation || 0)}°</span></div>
+            </div>
           </div>
         </div>
       )}
 
-      <Separator />
+      <Separator className="bg-border/50" />
 
       {/* Batch Labeling */}
-      <div>
-        <Label className="text-sm font-medium mb-2 block">Batch Labeling</Label>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-4 bg-gradient-to-b from-purple-500 to-purple-400 rounded-full"></div>
+          <Label className="text-sm font-semibold text-foreground">Batch Labeling</Label>
+        </div>
 
-        <div className="flex gap-1">
+        <div className="flex gap-2">
           <BatchLabelingDialog
             onApplyPattern={handleApplyPattern}
             selectedCount={{ rows: selectedRows.length, seats: 0 }}
           />
         </div>
-        <p className="text-xs text-muted-foreground mt-1">Select rows first, then apply batch labels</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">Select rows first, then apply batch labels</p>
       </div>
     </div>
   )

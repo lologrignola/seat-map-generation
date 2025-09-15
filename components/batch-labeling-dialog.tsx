@@ -4,10 +4,8 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
 import { Wand2 } from "lucide-react"
 
 interface BatchLabelingDialogProps {
@@ -25,156 +23,131 @@ export interface BatchPattern {
   template?: string
 }
 
-const PRESET_PATTERNS = [
+const SIMPLE_PRESETS = [
   {
-    name: "Theater Rows (A-Z)",
+    name: "Theater Rows",
+    description: "A, B, C, D...",
     pattern: {
-      type: "alphabetic",
+      type: "alphabetic" as const,
       prefix: "",
       suffix: "",
       startValue: "A",
       increment: 1,
-      direction: "vertical",
-    } as BatchPattern,
+      direction: "vertical" as const,
+    }
   },
   {
-    name: "Seat Numbers (1-N)",
+    name: "Numbers",
+    description: "1, 2, 3, 4...",
     pattern: {
-      type: "sequential",
+      type: "sequential" as const,
       prefix: "",
       suffix: "",
       startValue: 1,
       increment: 1,
-      direction: "horizontal",
-    } as BatchPattern,
+      direction: "horizontal" as const,
+    }
   },
   {
     name: "VIP Section",
+    description: "VIP-1, VIP-2, VIP-3...",
     pattern: {
-      type: "sequential",
-      prefix: "VIP",
+      type: "sequential" as const,
+      prefix: "VIP-",
       suffix: "",
       startValue: 1,
       increment: 1,
-      direction: "horizontal",
-    } as BatchPattern,
+      direction: "horizontal" as const,
+    }
   },
   {
-    name: "Platea (Spanish)",
+    name: "Balcony",
+    description: "Balcony A, Balcony B...",
     pattern: {
-      type: "sequential",
-      prefix: "Platea ",
-      suffix: "",
-      startValue: 1,
-      increment: 1,
-      direction: "vertical",
-    } as BatchPattern,
-  },
-  {
-    name: "Box Seats",
-    pattern: {
-      type: "sequential",
-      prefix: "Box ",
-      suffix: "",
-      startValue: 1,
-      increment: 1,
-      direction: "vertical",
-    } as BatchPattern,
-  },
-  {
-    name: "Balcony Rows",
-    pattern: {
-      type: "alphabetic",
+      type: "alphabetic" as const,
       prefix: "Balcony ",
       suffix: "",
       startValue: "A",
       increment: 1,
-      direction: "vertical",
-    } as BatchPattern,
-  },
+      direction: "vertical" as const,
+    }
+  }
 ]
 
 export function BatchLabelingDialog({ onApplyPattern, selectedCount }: BatchLabelingDialogProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [selectedPreset, setSelectedPreset] = useState<string>("")
-  const [pattern, setPattern] = useState<BatchPattern>({
-    type: "sequential",
-    prefix: "",
-    suffix: "",
-    startValue: 1,
-    increment: 1,
-    direction: "horizontal",
-  })
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
+  const [customStart, setCustomStart] = useState(1)
 
-  const handlePresetSelect = (presetName: string) => {
-    const preset = PRESET_PATTERNS.find((p) => p.name === presetName)
+  const handleApplyPreset = (presetName: string) => {
+    const preset = SIMPLE_PRESETS.find(p => p.name === presetName)
     if (preset) {
-      setPattern(preset.pattern)
-      setSelectedPreset(presetName)
+      onApplyPattern(preset.pattern)
+      setIsOpen(false)
     }
   }
 
-  const handleApply = () => {
-    onApplyPattern(pattern)
+  const handleApplyCustom = () => {
+    const customPattern: BatchPattern = {
+      type: "sequential",
+      prefix: "",
+      suffix: "",
+      startValue: customStart,
+      increment: 1,
+      direction: "horizontal",
+    }
+    onApplyPattern(customPattern)
     setIsOpen(false)
   }
 
-  const generatePreview = () => {
-    const items = []
-    const maxPreview = 5
-
-    for (let i = 0; i < Math.min(maxPreview, selectedCount.rows + selectedCount.seats); i++) {
-      let value: string
-
-      if (pattern.type === "sequential") {
-        value = `${pattern.prefix}${(pattern.startValue as number) + i * pattern.increment}${pattern.suffix}`
-      } else if (pattern.type === "alphabetic") {
-        const startChar = (pattern.startValue as string).charCodeAt(0)
-        const char = String.fromCharCode(startChar + i * pattern.increment)
-        value = `${pattern.prefix}${char}${pattern.suffix}`
-      } else {
-        value = `${pattern.prefix}${i + 1}${pattern.suffix}`
-      }
-
-      items.push(value)
+  const generatePreview = (startValue: number) => {
+    const preview: string[] = []
+    for (let i = 0; i < Math.min(5, selectedCount.rows); i++) {
+      preview.push(`${startValue + i}`)
     }
-
-    return items
+    return preview.join(", ") + (selectedCount.rows > 5 ? ` +${selectedCount.rows - 5} more...` : "")
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          <Wand2 className="w-4 h-4 mr-2" />
+        <Button variant="outline" size="sm" className="h-8 text-xs px-3 font-medium hover:bg-primary/5 hover:border-primary/20 transition-all duration-200">
+          <Wand2 className="w-3.5 h-3.5 mr-1.5" />
           Labeling
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Batch Labeling Patterns</DialogTitle>
+          <DialogTitle>Label Selected Rows</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Selection Info */}
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <Badge variant="outline">{selectedCount.rows} rows selected</Badge>
-            <Badge variant="outline">{selectedCount.seats} seats selected</Badge>
+          {/* Selection Status */}
+          <div className="text-center">
+            <div className="text-sm text-muted-foreground mb-2">
+              {selectedCount.rows} rows selected
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Choose how to label these rows
+            </div>
           </div>
 
-          {/* Preset Patterns */}
-          <div>
-            <Label className="text-sm font-medium mb-2 block">Quick Presets</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {PRESET_PATTERNS.map((preset) => (
+          {/* Simple Presets */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Quick Options</Label>
+            <div className="grid grid-cols-1 gap-2">
+              {SIMPLE_PRESETS.map((preset) => (
                 <Button
                   key={preset.name}
                   variant={selectedPreset === preset.name ? "default" : "outline"}
                   size="sm"
-                  onClick={() => handlePresetSelect(preset.name)}
-                  className="justify-start"
+                  className="w-full h-12 justify-start"
+                  onClick={() => setSelectedPreset(preset.name)}
                 >
-                  {preset.name}
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">{preset.name}</span>
+                    <span className="text-xs text-muted-foreground">{preset.description}</span>
+                  </div>
                 </Button>
               ))}
             </div>
@@ -182,134 +155,40 @@ export function BatchLabelingDialog({ onApplyPattern, selectedCount }: BatchLabe
 
           <Separator />
 
-          {/* Custom Pattern */}
-          <div>
-            <Label className="text-sm font-medium mb-3 block">Custom Pattern</Label>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="pattern-type" className="text-xs">
-                  Pattern Type
-                </Label>
-                <Select
-                  value={pattern.type}
-                  onValueChange={(value: "sequential" | "alphabetic" | "custom") =>
-                    setPattern({ ...pattern, type: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sequential">Sequential Numbers</SelectItem>
-                    <SelectItem value="alphabetic">Alphabetic</SelectItem>
-                    <SelectItem value="custom">Custom Template</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="direction" className="text-xs">
-                  Direction
-                </Label>
-                <Select
-                  value={pattern.direction}
-                  onValueChange={(value: "horizontal" | "vertical") => setPattern({ ...pattern, direction: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="horizontal">Horizontal (Left to Right)</SelectItem>
-                    <SelectItem value="vertical">Vertical (Top to Bottom)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="prefix" className="text-xs">
-                  Prefix
-                </Label>
+          {/* Custom Option */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Custom Start Number</Label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
                 <Input
-                  id="prefix"
-                  value={pattern.prefix}
-                  onChange={(e) => setPattern({ ...pattern, prefix: e.target.value })}
-                  placeholder="e.g., Row, VIP, A"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="suffix" className="text-xs">
-                  Suffix
-                </Label>
-                <Input
-                  id="suffix"
-                  value={pattern.suffix}
-                  onChange={(e) => setPattern({ ...pattern, suffix: e.target.value })}
-                  placeholder="e.g., -Premium, *"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="start-value" className="text-xs">
-                  Start Value
-                </Label>
-                {pattern.type === "alphabetic" ? (
-                  <Input
-                    id="start-value"
-                    value={pattern.startValue as string}
-                    onChange={(e) => setPattern({ ...pattern, startValue: e.target.value.toUpperCase() })}
-                    placeholder="A"
-                    maxLength={1}
-                  />
-                ) : (
-                  <Input
-                    id="start-value"
-                    type="number"
-                    value={pattern.startValue as number}
-                    onChange={(e) => setPattern({ ...pattern, startValue: Number.parseInt(e.target.value) || 1 })}
-                    placeholder="1"
-                  />
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="increment" className="text-xs">
-                  Increment
-                </Label>
-                <Input
-                  id="increment"
                   type="number"
-                  value={pattern.increment}
-                  onChange={(e) => setPattern({ ...pattern, increment: Number.parseInt(e.target.value) || 1 })}
-                  placeholder="1"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(parseInt(e.target.value) || 1)}
+                  className="h-10 text-center"
+                  min="1"
+                  max="999"
                 />
+                <div className="text-sm text-muted-foreground">
+                  Preview: {generatePreview(customStart)}
+                </div>
               </div>
-            </div>
-          </div>
-
-          {/* Preview */}
-          <div>
-            <Label className="text-sm font-medium mb-2 block">Preview</Label>
-            <div className="flex gap-2 flex-wrap">
-              {generatePreview().map((item, index) => (
-                <Badge key={index} variant="secondary">
-                  {item}
-                </Badge>
-              ))}
-              {selectedCount.rows + selectedCount.seats > 5 && (
-                <Badge variant="outline">+{selectedCount.rows + selectedCount.seats - 5} more...</Badge>
-              )}
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsOpen(false)}>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setIsOpen(false)} className="flex-1">
               Cancel
             </Button>
-            <Button onClick={handleApply} disabled={selectedCount.rows === 0 && selectedCount.seats === 0}>
-              Apply Pattern
-            </Button>
+            {selectedPreset ? (
+              <Button onClick={() => handleApplyPreset(selectedPreset)} className="flex-1">
+                Apply {selectedPreset}
+              </Button>
+            ) : (
+              <Button onClick={handleApplyCustom} className="flex-1">
+                Apply Custom
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>

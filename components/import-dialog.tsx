@@ -33,6 +33,18 @@ export function ImportDialog({ onImport }: ImportDialogProps) {
         const errors: string[] = []
         if (!data.name) errors.push("Map name is missing")
         if (!Array.isArray(data.rows)) errors.push("Rows data is invalid")
+        
+        // Check for required row properties
+        data.rows?.forEach((row: any, index: number) => {
+          if (!row.id) errors.push(`Row ${index + 1}: Missing ID`)
+          if (!row.label) errors.push(`Row ${index + 1}: Missing label`)
+          if (typeof row.x !== "number" || typeof row.y !== "number") {
+            errors.push(`Row ${index + 1}: Invalid coordinates`)
+          }
+          if (!Array.isArray(row.seats)) {
+            errors.push(`Row ${index + 1}: Invalid seats data`)
+          }
+        })
 
         setValidationErrors(errors)
       } catch (error) {

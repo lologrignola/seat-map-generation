@@ -5,11 +5,14 @@ import type React from "react"
 import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { SeatMapCanvas } from "./seat-map-canvas"
 import { Toolbar } from "./toolbar"
 import { ExportDialog } from "./export-dialog"
-import { Download, RotateCcw, Upload, Trash2 } from "lucide-react"
+import { PropertiesPanel } from "./properties-panel"
+import { Download, RotateCcw, Upload, Trash2, Undo2, Redo2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useUndoRedo } from "@/hooks/use-undo-redo"
 
 export interface Seat {
   id: string
@@ -28,6 +31,14 @@ export interface Row {
   x: number
   y: number
   rotation: number // in degrees
+  category: "ground-floor" | "balcony" | "wheelchair"
+  sectionLabel?: string
+  seatSpacing: number // in points
+  curve: number // curvature value
+  rowLabelEnabled: boolean
+  displayedLabel?: string
+  displayedType: "row" | "section"
+  entrance?: string
 }
 
 export interface SeatMap {
@@ -90,6 +101,27 @@ const validateSeatMapSchema = (data: any): { isValid: boolean; errors: string[] 
       errors.push(`Row ${rowIndex + 1}: Selected must be a boolean`)
     }
 
+    // Optional properties with defaults - only validate if present
+    if (row.category && !["ground-floor", "balcony", "wheelchair"].includes(row.category)) {
+      errors.push(`Row ${rowIndex + 1}: Category must be 'ground-floor', 'balcony', or 'wheelchair'`)
+    }
+
+    if (row.seatSpacing !== undefined && typeof row.seatSpacing !== "number") {
+      errors.push(`Row ${rowIndex + 1}: Seat spacing must be a number`)
+    }
+
+    if (row.curve !== undefined && typeof row.curve !== "number") {
+      errors.push(`Row ${rowIndex + 1}: Curve must be a number`)
+    }
+
+    if (row.rowLabelEnabled !== undefined && typeof row.rowLabelEnabled !== "boolean") {
+      errors.push(`Row ${rowIndex + 1}: Row label enabled must be a boolean`)
+    }
+
+    if (row.displayedType && !["row", "section"].includes(row.displayedType)) {
+      errors.push(`Row ${rowIndex + 1}: Displayed type must be 'row' or 'section'`)
+    }
+
     if (!Array.isArray(row.seats)) {
       errors.push(`Row ${rowIndex + 1}: Seats must be an array`)
       return
@@ -122,13 +154,60 @@ const validateSeatMapSchema = (data: any): { isValid: boolean; errors: string[] 
 }
 
 export function SeatMapBuilder() {
-  const [seatMap, setSeatMap] = useState<SeatMap>({
+  const initialSeatMap: SeatMap = {
     name: "Untitled Map",
     rows: [],
-  })
+  }
 
+  const {
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    setState: setSeatMap,
+    setStateGrouped: setSeatMapGrouped,
+    endGroup: endUndoGroup,
+    clear: clearHistory,
+    getCurrentState
+  } = useUndoRedo<SeatMap>(initialSeatMap, 50)
+
+  const seatMap = getCurrentState()
   const [selectedTool, setSelectedTool] = useState<"select">("select")
   const { toast } = useToast()
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if we're in an input field
+      const target = event.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true') {
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        if (canUndo) {
+          undo()
+          toast({
+            title: "Undo",
+            description: "Previous action undone",
+          })
+        }
+      } else if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || (event.key === 'z' && event.shiftKey))) {
+        event.preventDefault()
+        if (canRedo) {
+          redo()
+          toast({
+            title: "Redo",
+            description: "Action redone",
+          })
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [undo, redo, canUndo, canRedo, toast])
 
   // Load seat map from localStorage on component mount
   useEffect(() => {
@@ -139,6 +218,7 @@ export function SeatMapBuilder() {
         const validation = validateSeatMapSchema(parsed)
         if (validation.isValid) {
           setSeatMap(parsed)
+          clearHistory() // Clear undo history when loading from localStorage
           toast({
             title: "Session restored",
             description: "Your previous work has been loaded",
@@ -150,7 +230,7 @@ export function SeatMapBuilder() {
         console.warn('Failed to parse saved data:', error)
       }
     }
-  }, [toast])
+  }, [toast, clearHistory])
 
   // Save seat map to localStorage whenever it changes
   useEffect(() => {
@@ -170,13 +250,14 @@ export function SeatMapBuilder() {
         name: "Untitled Map",
         rows: [],
       })
+      clearHistory() // Clear undo history for new map
       localStorage.removeItem('seatMapBuilder_data')
       toast({
         title: "New map created",
         description: "Started with a fresh seat map",
       })
     }
-  }, [seatMap.rows.length, toast])
+  }, [seatMap.rows.length, toast, clearHistory])
 
   const handleExportMap = useCallback(() => {
     const totalSeats = seatMap.rows.reduce((acc, row) => acc + row.seats.length, 0)
@@ -254,6 +335,14 @@ export function SeatMapBuilder() {
               x: row.x || 0,
               y: row.y || 0,
               rotation: row.rotation || 0,
+              category: row.category || "ground-floor",
+              sectionLabel: row.sectionLabel || "",
+              seatSpacing: row.seatSpacing || 4,
+              curve: row.curve || 0,
+              rowLabelEnabled: row.rowLabelEnabled !== undefined ? row.rowLabelEnabled : true,
+              displayedLabel: row.displayedLabel || row.label,
+              displayedType: row.displayedType || "row",
+              entrance: row.entrance || "",
               seats: row.seats.map((seat: any) => ({
                 ...seat,
                 selected: false,
@@ -312,6 +401,10 @@ export function SeatMapBuilder() {
     }
   }, [seatMap, toast])
 
+  const handleMapNameChange = useCallback((newName: string) => {
+    setSeatMap({ ...seatMap, name: newName })
+  }, [seatMap])
+
   const handleClearSession = useCallback(() => {
     const confirmed = confirm("Are you sure you want to clear the saved session? This will remove all saved data but keep your current work.")
     if (confirmed) {
@@ -322,6 +415,20 @@ export function SeatMapBuilder() {
       })
     }
   }, [toast])
+
+  const handleRowUpdate = useCallback((rowId: string, updates: Partial<Row>) => {
+    const updatedRows = seatMap.rows.map((row) => 
+      row.id === rowId ? { ...row, ...updates } : row
+    )
+    setSeatMap({ ...seatMap, rows: updatedRows })
+  }, [seatMap])
+
+  const handleBulkUpdate = useCallback((rowIds: string[], updates: Partial<Row>) => {
+    const updatedRows = seatMap.rows.map((row) => 
+      rowIds.includes(row.id) ? { ...row, ...updates } : row
+    )
+    setSeatMap({ ...seatMap, rows: updatedRows })
+  }, [seatMap])
 
   const handleQuickImport = useCallback(() => {
     const input = document.createElement('input')
@@ -338,46 +445,115 @@ export function SeatMapBuilder() {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* Compact Header */}
-      <div className="flex-shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">SeatMapBuilder</h1>
+      {/* Modern Header */}
+      <div className="flex-shrink-0 border-b border-border/50 bg-gradient-to-r from-background via-background to-muted/20 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-8 py-4">
+          <div className="flex items-center gap-6">
+            {/* Brand Logo */}
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center shadow-sm">
+                <span className="text-primary-foreground font-bold text-sm">SM</span>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
+                  SeatMapBuilder
+                </h1>
+                <p className="text-xs text-muted-foreground -mt-1">Professional seating design</p>
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
             <div className="flex items-center gap-2">
-              <Button onClick={handleNewMap} variant="outline" size="sm">
-                <RotateCcw className="w-4 h-4 mr-2" />
+              {/* Undo/Redo Buttons */}
+              <div className="flex items-center gap-1 mr-2">
+                <Button 
+                  onClick={() => {
+                    undo()
+                    toast({
+                      title: "Undo",
+                      description: "Previous action undone",
+                    })
+                  }}
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 px-2 text-xs font-medium hover:bg-primary/5"
+                  disabled={!canUndo}
+                  title="Undo (Ctrl+Z)"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button 
+                  onClick={() => {
+                    redo()
+                    toast({
+                      title: "Redo",
+                      description: "Action redone",
+                    })
+                  }}
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8 px-2 text-xs font-medium hover:bg-primary/5"
+                  disabled={!canRedo}
+                  title="Redo (Ctrl+Y)"
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+              
+              <Button onClick={handleNewMap} variant="outline" size="sm" className="h-8 px-3 text-xs font-medium hover:bg-primary/5">
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
                 New Map
               </Button>
               <ExportDialog seatMap={seatMap} onExport={handleExportMap} />
-              <Button onClick={handleQuickImport} variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Quick Import
+              <Button onClick={handleQuickImport} variant="outline" size="sm" className="h-8 px-3 text-xs font-medium hover:bg-primary/5">
+                <Download className="w-3.5 h-3.5 mr-1.5" />
+                Import
               </Button>
-              <Button onClick={handleClearSession} variant="outline" size="sm">
-                <Trash2 className="w-4 h-4 mr-2" />
-                Clear Session
+              <Button onClick={handleClearSession} variant="outline" size="sm" className="h-8 px-3 text-xs font-medium hover:bg-destructive/5 hover:text-destructive">
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                Clear
               </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <div className="flex items-center gap-4">
-              <span className="font-medium">{seatMap.name}</span>
-              <span>{seatMap.rows.length} rows</span>
-              <span>{seatMap.rows.reduce((acc, row) => acc + row.seats.length, 0)} seats</span>
-              {seatMap.rows.length > 0 && (
-                <span className="text-xs text-green-600">💾 Auto-saved</span>
-              )}
+          {/* Status Information */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-primary rounded-full"></div>
+                <Input
+                  value={seatMap.name}
+                  onChange={(e) => handleMapNameChange(e.target.value)}
+                  className="h-6 text-sm font-semibold border-none bg-transparent p-0 focus:ring-0 focus:border-none hover:bg-muted/50 rounded px-2 py-1 transition-colors"
+                  placeholder="Untitled Map"
+                />
+              </div>
+              <div className="flex items-center gap-4 text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="font-medium">{seatMap.rows.length}</span>
+                  <span className="text-xs">rows</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="font-medium">{seatMap.rows.reduce((acc, row) => acc + row.seats.length, 0)}</span>
+                  <span className="text-xs">seats</span>
+                </span>
+              </div>
             </div>
+            {seatMap.rows.length > 0 && (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-md">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-xs font-medium text-green-700">Auto-saved</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Compact Sidebar */}
-        <div className="w-80 flex-shrink-0 border-r bg-muted/30 overflow-y-auto">
-          <div className="p-4">
+        {/* Modern Sidebar */}
+        <div className="w-80 flex-shrink-0 border-r border-border/50 bg-gradient-to-b from-background to-muted/20 overflow-y-auto">
+          <div className="p-6">
             <Toolbar
               selectedTool={selectedTool}
               onToolChange={setSelectedTool}
@@ -391,13 +567,22 @@ export function SeatMapBuilder() {
         <div className="flex-1 flex flex-col overflow-hidden">
           <SeatMapCanvas 
             seatMap={seatMap} 
-            onSeatMapChange={setSeatMap} 
+            onSeatMapChange={setSeatMap}
+            onSeatMapChangeGrouped={setSeatMapGrouped}
+            onEndUndoGroup={endUndoGroup}
             selectedTool={selectedTool}
             onToolChange={setSelectedTool}
             onDeleteRow={handleDeleteRow}
             onDeleteSelectedSeats={handleDeleteSelectedSeats}
           />
         </div>
+
+        {/* Properties Panel */}
+        <PropertiesPanel 
+          selectedRows={seatMap.rows.filter(row => row.selected)}
+          onRowUpdate={handleRowUpdate}
+          onBulkUpdate={handleBulkUpdate}
+        />
       </div>
     </div>
   )

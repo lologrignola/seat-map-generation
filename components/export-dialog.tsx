@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,6 +19,11 @@ export function ExportDialog({ seatMap, onExport }: ExportDialogProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [exportName, setExportName] = useState(seatMap.name)
   const [description, setDescription] = useState("")
+
+  // Update export name when seat map name changes
+  useEffect(() => {
+    setExportName(seatMap.name)
+  }, [seatMap.name])
 
   const totalSeats = seatMap.rows.reduce((acc, row) => acc + row.seats.length, 0)
   const accessibleSeats = seatMap.rows.reduce(
@@ -62,6 +67,14 @@ export function ExportDialog({ seatMap, onExport }: ExportDialogProps) {
       x: row.x,
       y: row.y,
       rotation: row.rotation,
+      category: row.category,
+      sectionLabel: row.sectionLabel,
+      seatSpacing: row.seatSpacing,
+      curve: row.curve,
+      rowLabelEnabled: row.rowLabelEnabled,
+      displayedLabel: row.displayedLabel,
+      displayedType: row.displayedType,
+      entrance: row.entrance,
       seats: row.seats.slice(0, 3).map((seat) => ({
         id: seat.id,
         label: seat.label,
